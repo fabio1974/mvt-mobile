@@ -3,6 +3,8 @@
     "name": "mvt-mobile",
     "slug": "mvt-mobile",
     "version": "1.0.0",
+    "projectId": "mvt-mobile-delivery-system",
+    "applicationId": "com.mvt.mobile.delivery",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,18 +15,47 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Este app precisa acessar sua localização para otimizar as rotas de entrega e melhorar o serviço.",
+        "NSLocationWhenInUseUsageDescription": "Este app precisa acessar sua localização para otimizar as rotas de entrega.",
+        "UIBackgroundModes": ["location", "background-fetch"]
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
+    "notification": {
+      "icon": "./assets/icon.png",
+      "color": "#e94560",
+      "androidMode": "default",
+      "androidCollapsedTitle": "MVT Notifications",
+      "vapidPublicKey": "BN8ym6-oByG6GoAEC9399ciwUoal_2vh1IyGph1xS9rnF0yC5GPHfrlgE-th3JqyPPaFOqXKnfQBYVj9oS5a15k",
+      "serviceWorkerPath": "sw.js"
+    },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Este app precisa acessar sua localização para otimizar as rotas de entrega e melhorar o serviço.",
+          "locationWhenInUsePermission": "Este app precisa acessar sua localização para otimizar as rotas de entrega.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
+    ]
   }
 }
