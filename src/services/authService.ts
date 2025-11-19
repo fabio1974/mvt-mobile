@@ -11,6 +11,7 @@ interface MockUser {
   name: string;
   email: string;
   role: string;
+  gender?: string;
 }
 
 interface MockLoginResponse {
@@ -69,7 +70,7 @@ export const mockLogin = async (email: string, password: string): Promise<MockLo
     return {
       success: false,
       data: null as any,
-      message: 'Senha incorreta. Use: 123456'
+      message: 'Email ou senha incorretos'
     };
   }
   
@@ -80,7 +81,7 @@ export const mockLogin = async (email: string, password: string): Promise<MockLo
     return {
       success: false,
       data: null as any,
-      message: 'Email não encontrado. Tente: admin@zapi10.com'
+      message: 'Email ou senha incorretos'
     };
   }
   
@@ -146,6 +147,7 @@ export class AuthService {
           email: string;
           name: string;
           role: string;
+          gender?: string;
           organizationId: number;
           phone: string;
           cpf: string;
@@ -165,7 +167,8 @@ export class AuthService {
         id: user.userId,
         email: user.email,
         name: user.name,
-        role: user.role.toLowerCase()
+        role: user.role.toLowerCase(),
+        gender: user.gender
       };
 
       // Salva token e usuário
@@ -252,6 +255,43 @@ export class AuthService {
    */
   isUsingMock(): boolean {
     return this.useMock;
+  }
+  
+  /**
+   * Retorna o usuário logado do AsyncStorage
+   */
+  async getCurrentUser(): Promise<MockUser | null> {
+    try {
+      const userJson = await AsyncStorage.getItem('user');
+      if (userJson) {
+        return JSON.parse(userJson);
+      }
+      return null;
+    } catch (error) {
+      console.error('❌ Erro ao buscar usuário atual:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Tenta fazer auto-login com credenciais salvas
+   */
+  async tryAutoLogin(): Promise<AuthResponse | null> {
+    try {
+      const savedEmail = await AsyncStorage.getItem("saved_email");
+      const savedPassword = await AsyncStorage.getItem("saved_password");
+      const keepLoggedIn = await AsyncStorage.getItem("keep_logged_in");
+
+      if (savedEmail && savedPassword && keepLoggedIn === "true") {
+        console.log("🔄 Tentando auto-login com credenciais salvas");
+        return await this.login(savedEmail, savedPassword);
+      }
+      
+      return null;
+    } catch (error) {
+      console.error("Erro no auto-login:", error);
+      return null;
+    }
   }
 }
 

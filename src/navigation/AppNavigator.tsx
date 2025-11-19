@@ -13,6 +13,7 @@ interface User {
   name: string;
   email: string;
   role: string;
+  gender?: string;
 }
 
 export default function AppNavigator() {
@@ -39,21 +40,29 @@ export default function AppNavigator() {
             const user = response.user || JSON.parse(userData);
             setUser(user);
             setAuthState("authenticated");
+            return;
           } else {
             // Token inválido
             await clearAuth();
-            setAuthState("welcome");
           }
         } catch (error) {
           console.log("Token validation error:", error);
           // Erro na validação - limpa auth
           await clearAuth();
-          setAuthState("welcome");
         }
-      } else {
-        // Sem token - primeiro acesso
-        setAuthState("welcome");
       }
+
+      // Tenta auto-login com credenciais salvas
+      const autoLoginResult = await authService.tryAutoLogin();
+      if (autoLoginResult && autoLoginResult.success) {
+        console.log("✅ Auto-login realizado com sucesso!");
+        setUser(autoLoginResult.user!);
+        setAuthState("authenticated");
+        return;
+      }
+
+      // Sem token e sem credenciais salvas - primeiro acesso
+      setAuthState("welcome");
     } catch (error) {
       console.error("Error checking auth status:", error);
       setAuthState("welcome");
@@ -63,6 +72,10 @@ export default function AppNavigator() {
   const clearAuth = async () => {
     await AsyncStorage.removeItem("auth_token");
     await AsyncStorage.removeItem("user");
+    // NÃO remove as credenciais salvas para permitir re-login automático
+    // await AsyncStorage.removeItem("saved_email");
+    // await AsyncStorage.removeItem("saved_password");
+    // await AsyncStorage.removeItem("keep_logged_in");
 
     // Só limpa o apiClient se não estiver usando mock
     if (!authService.isUsingMock()) {

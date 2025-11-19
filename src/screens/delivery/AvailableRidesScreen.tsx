@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { deliveryService } from "../../services/deliveryService";
+import { deliveryPollingService } from "../../services/deliveryPollingService";
 import { unifiedLocationService } from "../../services/unifiedLocationService";
 
 interface AvailableRidesScreenProps {
@@ -29,25 +30,48 @@ interface DeliveryEntity {
   [key: string]: any;
 }
 
+const statusConfig = {
+  PENDING: { color: '#fbbf24', icon: '⏳', label: 'Aguardando' },
+  ACCEPTED: { color: '#3b82f6', icon: '✅', label: 'Aceita' },
+  PICKED_UP: { color: '#8b5cf6', icon: '📦', label: 'Coletada' },
+  IN_TRANSIT: { color: '#06b6d4', icon: '🚚', label: 'Em Trânsito' },
+  COMPLETED: { color: '#10b981', icon: '✔️', label: 'Concluída' },
+  CANCELLED: { color: '#ef4444', icon: '❌', label: 'Cancelada' }
+};
+
 export default function AvailableRidesScreen({
   onRideSelect,
   onBack,
 }: AvailableRidesScreenProps) {
   const [deliveries, setDeliveries] = useState<DeliveryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [userLocation, setUserLocation] = useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
+  const [selectedTab, setSelectedTab] = useState<'pending' | 'active' | 'completed'>('pending');
+  const [hasActiveDelivery, setHasActiveDelivery] = useState(false);
 
   useEffect(() => {
     loadInitialData();
-  }, []);
+  }, [selectedTab]); // Recarrega ao mudar aba
+
+  // Verifica se há delivery ativa ao montar e quando muda a tab
+  useEffect(() => {
+    checkActiveDelivery();
+  }, [selectedTab]);
+
+  const checkActiveDelivery = async () => {
+    const hasAccepted = await deliveryPollingService.hasAcceptedDelivery();
+    setHasActiveDelivery(hasAccepted);
+    console.log(`🔍 [AvailableRidesScreen] Delivery ativa detectada: ${hasAccepted}`);
+  };
 
   const loadInitialData = async () => {
     setLoading(true);
-    await Promise.all([getCurrentLocation(), loadAvailableDeliveries()]);
+    await getCurrentLocation();
+    await loadDeliveries();
     setLoading(false);
   };
 
@@ -66,81 +90,145 @@ export default function AvailableRidesScreen({
     }
   };
 
-  const loadAvailableDeliveries = async () => {
+  /**
+   * Carrega entregas baseado na aba selecionada
+   * - PENDING: Sempre online
+   * - ACTIVE: Cache 30min
+   * - COMPLETED: Cache 30min
+   */
+  const loadDeliveries = async () => {
     try {
-      console.log("🔍 Carregando entregas disponíveis...");
+      let results: any[] = [];
 
-      const response = await deliveryService.getAvailableDeliveries(
-        userLocation?.latitude,
-        userLocation?.longitude,
-        5000 // 5km de raio
-      );
+      switch (selectedTab) {
+        case 'pending':
+          // PENDING → Sempre online, ordenado por mais recente
+          results = await deliveryPollingService.getPendingDeliveries(
+            userLocation?.latitude,
+            userLocation?.longitude,
+            5000 // 5km de raio
+          );
+          break;
 
-      if (response.success && Array.isArray(response.data)) {
-        // Filtra apenas entregas que têm ID
-        const validDeliveries = response.data.filter(
-          (delivery: any) => delivery.id
-        );
-        setDeliveries(validDeliveries);
-        console.log(`✅ ${validDeliveries.length} entregas carregadas`);
-      } else {
-        console.log("⚠️ Nenhuma entrega disponível");
-        setDeliveries([]);
+        case 'active':
+          // ATIVAS → Cache 30min
+          results = await deliveryPollingService.getMyActiveDeliveries(false);
+          break;
+
+        case 'completed':
+          // COMPLETADAS → Cache 30min
+          results = await deliveryPollingService.getMyCompletedDeliveries(false);
+          break;
       }
+
+      setDeliveries(results);
+      console.log(`✅ ${results.length} entregas carregadas (${selectedTab})`);
+      
+      // Verifica se há delivery ativa após carregar
+      await checkActiveDelivery();
     } catch (error) {
-      console.error("❌ Erro ao carregar entregas:", error);
-      Alert.alert(
-        "Erro",
-        "Não foi possível carregar as entregas disponíveis. Tente novamente."
-      );
+      console.error('❌ Erro ao carregar entregas:', error);
+      Alert.alert('Erro', 'Não foi possível carregar as entregas');
     }
   };
 
+  /**
+   * Pull-to-Refresh
+   * PENDING: Sempre busca online
+   * ACTIVE/COMPLETED: Força refresh (ignora cache)
+   */
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadAvailableDeliveries();
-    setRefreshing(false);
+    try {
+      let results: any[] = [];
+
+      switch (selectedTab) {
+        case 'pending':
+          // PENDING → Sempre busca do backend
+          results = await deliveryPollingService.getPendingDeliveries(
+            userLocation?.latitude,
+            userLocation?.longitude,
+            5000
+          );
+          break;
+
+        case 'active':
+          // ATIVAS → Força refresh (ignora cache)
+          results = await deliveryPollingService.getMyActiveDeliveries(true);
+          break;
+
+        case 'completed':
+          // COMPLETADAS → Força refresh
+          results = await deliveryPollingService.getMyCompletedDeliveries(true);
+          break;
+      }
+
+      setDeliveries(results);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar:', error);
+      Alert.alert('Erro', 'Não foi possível atualizar');
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleAcceptDelivery = async (deliveryId: string) => {
-    try {
-      console.log(`✋ Tentando aceitar entrega ${deliveryId}...`);
+    Alert.alert(
+      'Aceitar Entrega',
+      'Confirma que deseja aceitar esta entrega?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Aceitar',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              
+              // Usa o mesmo método do popup (com courierId no body)
+              const response = await deliveryService.acceptDelivery(deliveryId);
 
-      const response = await deliveryService.acceptDelivery(deliveryId);
-
-      if (response.success) {
-        Alert.alert(
-          "Sucesso!",
-          response.message || "Entrega aceita com sucesso!",
-          [
-            {
-              text: "OK",
-              onPress: () => {
-                // Remove da lista e navega para detalhes
-                setDeliveries((prev) =>
-                  prev.filter((d) => d.id !== deliveryId)
-                );
+              if (response.success) {
+                // Invalida cache de ativas (agora tem uma nova)
+                await deliveryPollingService.invalidateActiveCache();
+                
+                // Atualiza estado de delivery ativa
+                setHasActiveDelivery(true);
+                
+                Alert.alert('Sucesso!', 'Entrega aceita com sucesso!');
+                
+                // Abre tela da entrega ativa
                 onRideSelect(deliveryId);
-              },
-            },
-          ]
-        );
-      } else {
-        Alert.alert(
-          "Erro",
-          response.error || "Não foi possível aceitar a entrega"
-        );
-      }
-    } catch (error) {
-      console.error("❌ Erro ao aceitar entrega:", error);
-      Alert.alert("Erro", "Erro de conexão. Tente novamente.");
-    }
+              } else {
+                Alert.alert('Erro', response.error || 'Não foi possível aceitar a entrega');
+              }
+            } catch (error) {
+              console.error('❌ Erro ao aceitar entrega:', error);
+              Alert.alert('Erro', 'Erro de conexão ao aceitar entrega');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
-  const confirmAcceptDelivery = (deliveryId: string, deliveryData: any) => {
-    const clientName = getDeliveryClientName(deliveryData);
-    const value = getDeliveryValue(deliveryData);
-    const address = getDeliveryAddress(deliveryData);
+  const handleRejectDelivery = async (deliveryId: string) => {
+    await deliveryPollingService.markAsRejected(deliveryId);
+    Alert.alert('Entrega Rejeitada', 'Esta entrega não será mais exibida para você.');
+    loadDeliveries(); // Recarrega lista
+  };
+
+  const handleUnrejectDelivery = async (deliveryId: string) => {
+    await deliveryPollingService.unmarkAsRejected(deliveryId);
+    Alert.alert('Sucesso', 'Entrega disponível novamente');
+    loadDeliveries(); // Recarrega
+  };
+
+  const confirmAcceptDelivery = (deliveryId: string, delivery: DeliveryItem) => {
+    const clientName = getDeliveryClientName(delivery);
+    const value = getDeliveryValue(delivery);
+    const address = getDeliveryAddress(delivery);
 
     Alert.alert(
       "Aceitar Entrega",
@@ -242,10 +330,54 @@ export default function AvailableRidesScreen({
     const value = getDeliveryValue(item);
     const address = getDeliveryAddress(item);
     const distance = getDeliveryDistance(item);
-    const status = item.status || "Disponível";
+    const status = item.status || "PENDING";
+    const isRejected = item.locallyRejected === true;
+    
+    // Configuração do status - Se rejeitada, mostra badge vermelha
+    let statusInfo = statusConfig[status as keyof typeof statusConfig] || statusConfig.PENDING;
+    if (isRejected) {
+      statusInfo = { color: '#ef4444', icon: '❌', label: 'Rejeitada' };
+    }
+
+    // Função para formatar data
+    const formatDate = (dateString: string | undefined) => {
+      if (!dateString) return null;
+      const date = new Date(dateString);
+      return date.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    };
+
+    // Determinar qual timestamp mostrar baseado no status
+    const getRelevantTimestamp = () => {
+      if (item.completedAt) return { label: "✔️ Concluída em:", date: formatDate(item.completedAt) };
+      if (item.inTransitAt) return { label: "🚚 Em trânsito desde:", date: formatDate(item.inTransitAt) };
+      if (item.pickedUpAt) return { label: "📦 Coletada em:", date: formatDate(item.pickedUpAt) };
+      if (item.acceptedAt) return { label: "✅ Aceita em:", date: formatDate(item.acceptedAt) };
+      if (item.createdAt) return { label: "📅 Criada em:", date: formatDate(item.createdAt) };
+      return null;
+    };
+
+    const timestampInfo = getRelevantTimestamp();
 
     return (
-      <View style={styles.deliveryCard}>
+      <View style={[styles.deliveryCard, isRejected && styles.deliveryCardRejected]}>
+        {/* Badge de Status (mostra "Rejeitada" em vermelho se foi rejeitada localmente) */}
+        <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
+          <Text style={styles.statusBadgeIcon}>{statusInfo.icon}</Text>
+          <Text style={styles.statusBadgeText}>{statusInfo.label}</Text>
+        </View>
+        
+        {/* ID da Entrega */}
+        <View style={styles.deliveryIdBadge}>
+          <Text style={styles.deliveryIdLabel}>ID:</Text>
+          <Text style={styles.deliveryIdValue}>#{item.id}</Text>
+        </View>
+        
         <View style={styles.deliveryHeader}>
           <View style={styles.deliveryInfo}>
             <Text style={styles.clientName}>{clientName}</Text>
@@ -253,7 +385,6 @@ export default function AvailableRidesScreen({
           </View>
           <View style={styles.distanceContainer}>
             <Text style={styles.distance}>{distance}</Text>
-            <Text style={styles.status}>{status}</Text>
           </View>
         </View>
 
@@ -262,20 +393,60 @@ export default function AvailableRidesScreen({
           <Text style={styles.address}>{address}</Text>
         </View>
 
+        {/* Timestamp relevante */}
+        {timestampInfo && (
+          <View style={styles.timestampContainer}>
+            <Text style={styles.timestampLabel}>{timestampInfo.label}</Text>
+            <Text style={styles.timestampDate}>{timestampInfo.date}</Text>
+          </View>
+        )}
+
         <View style={styles.actionContainer}>
+          {/* Sempre mostra botão Ver Detalhes */}
           <TouchableOpacity
             style={styles.viewButton}
             onPress={() => onRideSelect(item.id)}
           >
-            <Text style={styles.viewButtonText}>Ver Detalhes</Text>
+            <Text style={styles.viewButtonText}>👁️ Ver Detalhes</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.acceptButton}
-            onPress={() => confirmAcceptDelivery(item.id, item)}
-          >
-            <Text style={styles.acceptButtonText}>Aceitar</Text>
-          </TouchableOpacity>
+          {/* Esconde botões de ação se houver delivery ativa */}
+          {!hasActiveDelivery && (
+            <>
+              {isRejected ? (
+                // Se foi rejeitada, mostra botão para desfazer
+                <TouchableOpacity
+                  style={[styles.acceptButton, { backgroundColor: "#10b981" }]}
+                  onPress={async () => {
+                    await deliveryPollingService.unmarkAsRejected(item.id);
+                    Alert.alert("✅ Rejeição Removida", "Esta entrega voltou a estar disponível para você.");
+                    await loadDeliveries();
+                  }}
+                >
+                  <Text style={styles.acceptButtonText}>Desfazer Rejeição</Text>
+                </TouchableOpacity>
+              ) : (
+                // Se não foi rejeitada E status é PENDING, mostra botão aceitar
+                status === 'PENDING' && (
+                  <TouchableOpacity
+                    style={styles.acceptButton}
+                    onPress={() => confirmAcceptDelivery(item.id, item)}
+                  >
+                    <Text style={styles.acceptButtonText}>Aceitar</Text>
+                  </TouchableOpacity>
+                )
+              )}
+            </>
+          )}
+
+          {/* Mostra aviso se houver delivery ativa */}
+          {hasActiveDelivery && selectedTab === 'pending' && (
+            <View style={styles.blockedContainer}>
+              <Text style={styles.blockedText}>
+                🔒 Você já tem uma entrega ativa
+              </Text>
+            </View>
+          )}
         </View>
       </View>
     );
@@ -307,9 +478,48 @@ export default function AvailableRidesScreen({
           <Text style={styles.headerTitle}>Entregas Disponíveis</Text>
           <Text style={styles.headerSubtitle}>
             {deliveries.length} entrega{deliveries.length !== 1 ? "s" : ""}{" "}
-            próxima{deliveries.length !== 1 ? "s" : ""}
+            {selectedTab === 'pending' ? 'pendente' : selectedTab === 'active' ? 'ativa' : 'concluída'}{deliveries.length !== 1 ? "s" : ""}
           </Text>
         </View>
+      </View>
+
+      {/* Abas de filtro */}
+      <View style={styles.tabsContainer}>
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === 'pending' && styles.tabActive]}
+          onPress={() => setSelectedTab('pending')}
+        >
+          <Text style={[styles.tabText, selectedTab === 'pending' && styles.tabTextActive]}>
+            ⏳ Pendentes
+          </Text>
+          {selectedTab === 'pending' && (
+            <View style={styles.tabIndicator} />
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === 'active' && styles.tabActive]}
+          onPress={() => setSelectedTab('active')}
+        >
+          <Text style={[styles.tabText, selectedTab === 'active' && styles.tabTextActive]}>
+            🚚 Ativa
+          </Text>
+          {selectedTab === 'active' && (
+            <View style={styles.tabIndicator} />
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tab, selectedTab === 'completed' && styles.tabActive]}
+          onPress={() => setSelectedTab('completed')}
+        >
+          <Text style={[styles.tabText, selectedTab === 'completed' && styles.tabTextActive]}>
+            ✔️ Concluídas
+          </Text>
+          {selectedTab === 'completed' && (
+            <View style={styles.tabIndicator} />
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* Lista de entregas */}
@@ -330,7 +540,7 @@ export default function AvailableRidesScreen({
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>📦</Text>
-            <Text style={styles.emptyTitle}>Nenhuma entrega disponível</Text>
+            <Text style={styles.emptyTitle}>Nenhuma entrega {selectedTab === 'pending' ? 'pendente' : selectedTab === 'active' ? 'ativa' : 'concluída'}</Text>
             <Text style={styles.emptySubtitle}>
               Puxe para baixo para atualizar ou aguarde novas entregas chegarem
             </Text>
@@ -387,6 +597,41 @@ const styles = StyleSheet.create({
     color: "#94a3b8",
     marginTop: 2,
   },
+  tabsContainer: {
+    flexDirection: "row",
+    backgroundColor: "#1a1a2e",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#262640",
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+    position: "relative",
+  },
+  tabActive: {
+    // Estilo aplicado quando a aba está ativa
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#94a3b8",
+  },
+  tabTextActive: {
+    color: "#e94560",
+  },
+  tabIndicator: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: "#e94560",
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+  },
   listContainer: {
     padding: 20,
   },
@@ -397,6 +642,53 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: "#262640",
+  },
+  deliveryCardRejected: {
+    backgroundColor: "#2a1a1e",
+    borderColor: "#ef4444",
+    opacity: 0.8,
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  statusBadgeIcon: {
+    fontSize: 14,
+    marginRight: 6,
+  },
+  statusBadgeText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  deliveryIdBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#0f172a",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    alignSelf: "flex-start",
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#334155",
+  },
+  deliveryIdLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#94a3b8",
+    marginRight: 4,
+  },
+  deliveryIdValue: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#60a5fa",
+    fontFamily: "monospace",
   },
   deliveryHeader: {
     flexDirection: "row",
@@ -445,16 +737,37 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     lineHeight: 20,
   },
+  timestampContainer: {
+    marginBottom: 16,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#374151",
+  },
+  timestampLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#94a3b8",
+    marginBottom: 4,
+  },
+  timestampDate: {
+    fontSize: 13,
+    color: "#3b82f6",
+    fontWeight: "500",
+  },
   actionContainer: {
     flexDirection: "row",
     gap: 12,
   },
   viewButton: {
     flex: 1,
-    backgroundColor: "#374151",
+    backgroundColor: "#1f2937",
     borderRadius: 8,
     paddingVertical: 12,
+    paddingHorizontal: 16,
     alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#374151",
   },
   viewButtonText: {
     color: "#ffffff",
@@ -493,5 +806,20 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
     paddingHorizontal: 40,
+  },
+  blockedContainer: {
+    backgroundColor: "#374151",
+    borderRadius: 8,
+    padding: 10,
+    marginLeft: 8,
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  blockedText: {
+    color: "#fbbf24",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
   },
 });

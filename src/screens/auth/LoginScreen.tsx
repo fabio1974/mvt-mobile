@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,9 +10,12 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authService } from "../../services/authService";
+import GradientText from "../../components/GradientText";
 
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
@@ -48,6 +51,30 @@ export default function LoginScreen({
   });
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [keepLoggedIn, setKeepLoggedIn] = useState(true); // Novo estado para manter logado
+
+  // Carrega as credenciais salvas quando o componente montar
+  useEffect(() => {
+    loadSavedCredentials();
+  }, []);
+
+  const loadSavedCredentials = async () => {
+    try {
+      const savedEmail = await AsyncStorage.getItem("saved_email");
+      const savedPassword = await AsyncStorage.getItem("saved_password");
+      const keepLogged = await AsyncStorage.getItem("keep_logged_in");
+
+      if (savedEmail && savedPassword && keepLogged === "true") {
+        setFormData({
+          email: savedEmail,
+          password: savedPassword,
+        });
+        setKeepLoggedIn(true);
+      }
+    } catch (error) {
+      console.error("Erro ao carregar credenciais salvas:", error);
+    }
+  };
 
   const handleInputChange = (field: keyof LoginData, value: string) => {
     setFormData((prev) => ({
@@ -92,13 +119,30 @@ export default function LoginScreen({
       );
 
       if (response.success) {
+        // Salva ou remove credenciais baseado no checkbox
+        if (keepLoggedIn) {
+          await AsyncStorage.setItem("saved_email", formData.email.trim());
+          await AsyncStorage.setItem("saved_password", formData.password);
+          await AsyncStorage.setItem("keep_logged_in", "true");
+        } else {
+          await AsyncStorage.removeItem("saved_email");
+          await AsyncStorage.removeItem("saved_password");
+          await AsyncStorage.removeItem("keep_logged_in");
+        }
+
         // Token já foi salvo pelo authService, apenas chama callback de sucesso
         onLoginSuccess(response.user);
 
-        Alert.alert(
-          "Login realizado!",
-          `Bem-vindo(a), ${response.user?.name}!`
-        );
+        // Determina a saudação baseada no gênero
+        const gender = response.user?.gender?.toUpperCase();
+        let greeting = "Bem-vindo(a)";
+        if (gender === "MALE") {
+          greeting = "Bem-vindo";
+        } else if (gender === "FEMALE") {
+          greeting = "Bem-vinda";
+        }
+
+        // Login successful - no alert needed, just proceed to main screen
       } else {
         Alert.alert("Erro no login", response.error || "Credenciais inválidas");
       }
@@ -167,9 +211,13 @@ export default function LoginScreen({
 
           <View style={styles.logoContainer}>
             <View style={styles.logoIcon}>
-              <Text style={styles.logoEmoji}>⚡</Text>
+              <Image 
+                source={require('../../../assets/icon.png')} 
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
             </View>
-            <Text style={styles.appName}>Zapi10</Text>
+            <GradientText style={styles.appName}>Zapi10</GradientText>
             <Text style={styles.subtitle}>Faça login para continuar</Text>
           </View>
         </View>
@@ -218,6 +266,18 @@ export default function LoginScreen({
           </View>
 
           <TouchableOpacity
+            style={styles.checkboxContainer}
+            onPress={() => setKeepLoggedIn(!keepLoggedIn)}
+            disabled={isLoading}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.checkbox, keepLoggedIn && styles.checkboxChecked]}>
+              {keepLoggedIn && <Text style={styles.checkboxIcon}>✓</Text>}
+            </View>
+            <Text style={styles.checkboxLabel}>Manter-me conectado</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={styles.forgotPassword}
             onPress={handleForgotPassword}
             disabled={isLoading}
@@ -249,20 +309,6 @@ export default function LoginScreen({
               Entre em contato com o suporte
             </Text>
           </Text>
-
-          {/* Credenciais de teste em desenvolvimento */}
-          {__DEV__ && (
-            <View style={styles.testCredentials}>
-              <Text style={styles.testTitle}>🧪 Credenciais de Teste:</Text>
-              <Text style={styles.testText}>admin@zapi10.com / 123456</Text>
-              <Text style={styles.testText}>
-                jose.barros@zapi10.com / 123456
-              </Text>
-              <Text style={styles.testText}>
-                entregador@zapi10.com / 123456
-              </Text>
-            </View>
-          )}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -300,12 +346,13 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 20,
-    backgroundColor: "#1a1a2e",
-    borderWidth: 2,
-    borderColor: "#e94560",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
+  },
+  logoImage: {
+    width: 76,
+    height: 76,
   },
   logoEmoji: {
     fontSize: 32,
@@ -364,6 +411,37 @@ const styles = StyleSheet.create({
   passwordToggleText: {
     fontSize: 16,
   },
+  checkboxContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: "#64748b",
+    backgroundColor: "#1a1a2e",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  checkboxChecked: {
+    backgroundColor: "#e94560",
+    borderColor: "#e94560",
+  },
+  checkboxIcon: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  checkboxLabel: {
+    color: "#94a3b8",
+    fontSize: 14,
+    fontWeight: "500",
+  },
   forgotPassword: {
     alignSelf: "flex-end",
     marginBottom: 24,
@@ -401,28 +479,5 @@ const styles = StyleSheet.create({
   footerLink: {
     color: "#e94560",
     fontWeight: "500",
-  },
-  testCredentials: {
-    marginTop: 20,
-    padding: 15,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
-  },
-  testTitle: {
-    color: "#FFF",
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  testText: {
-    color: "#FFF",
-    fontSize: 12,
-    fontFamily: "monospace",
-    marginBottom: 4,
-    textAlign: "center",
-    opacity: 0.9,
   },
 });

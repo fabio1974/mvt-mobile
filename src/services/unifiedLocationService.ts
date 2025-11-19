@@ -22,6 +22,7 @@ interface LocationUpdateResponse {
 
 class UnifiedLocationService {
   private currentService: any = null;
+  private initialized = false;
 
   constructor() {
     this.initializeService();
@@ -38,8 +39,24 @@ class UnifiedLocationService {
       console.log('🌐 Usando WebLocationService para plataforma web');
     } else {
       this.currentService = locationService;
-
+      console.log('📱 Usando LocationService para plataforma mobile');
     }
+  }
+
+  /**
+   * Inicializa configurações específicas do serviço
+   * (mock automático no Expo Go, etc)
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
+    if (this.currentService?.initialize) {
+      await this.currentService.initialize();
+    }
+
+    this.initialized = true;
   }
 
   /**
@@ -181,17 +198,26 @@ class UnifiedLocationService {
   }
 
   /**
-   * Testa a geolocalização (disponível apenas no web)
+   * Testa a geolocalização em qualquer plataforma
    */
   async testGeolocation(): Promise<void> {
-    if (Platform.OS === 'web' && this.currentService?.testGeolocation) {
-      try {
-        await this.currentService.testGeolocation();
-      } catch (error) {
-        console.error('❌ Erro no teste de geolocalização:', error);
+    console.log('🧪 Testando geolocalização...');
+    
+    try {
+      const location = await this.getCurrentLocation();
+      
+      if (location) {
+        console.log('✅ Localização obtida:', {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          accuracy: location.accuracy
+        });
+        console.log(`📍 Lat: ${location.latitude.toFixed(6)}, Lng: ${location.longitude.toFixed(6)}, Precisão: ${location.accuracy?.toFixed(0)}m`);
+      } else {
+        console.log('❌ Não foi possível obter localização');
       }
-    } else {
-      console.log('🧪 Teste de geolocalização disponível apenas no web');
+    } catch (error) {
+      console.error('❌ Erro no teste de geolocalização:', error);
     }
   }
 

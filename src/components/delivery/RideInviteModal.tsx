@@ -8,6 +8,7 @@ import {
   Alert,
   Dimensions,
   Animated,
+  Platform,
 } from "react-native";
 import { deliveryService } from "../../services/deliveryService";
 
@@ -34,18 +35,39 @@ export default function RideInviteModal({
 }: RideInviteModalProps) {
   const [timeLeft, setTimeLeft] = useState(autoCloseTimer);
   const [isProcessing, setIsProcessing] = useState(false);
-  const fadeAnim = new Animated.Value(0);
-  const scaleAnim = new Animated.Value(0.8);
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const scaleAnim = React.useRef(new Animated.Value(0.8)).current;
+  const timerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (visible) {
+      console.log('🔍 [RideInviteModal] Modal aberto:', {
+        deliveryId,
+        deliveryData,
+        hasData: !!deliveryData,
+        dataKeys: deliveryData ? Object.keys(deliveryData) : []
+      });
+      console.log(`📋 [RideInviteModal] Exibindo entrega ID: #${deliveryId}`);
       setTimeLeft(autoCloseTimer);
       startAnimation();
       startTimer();
     } else {
       resetAnimation();
+      stopTimer();
     }
+
+    // Cleanup: para o timer quando o modal fecha ou componente desmonta
+    return () => {
+      stopTimer();
+    };
   }, [visible]);
+
+  const stopTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
 
   const startAnimation = () => {
     Animated.parallel([
@@ -67,19 +89,19 @@ export default function RideInviteModal({
   };
 
   const startTimer = () => {
-    const timer = setInterval(() => {
+    // Para qualquer timer existente
+    stopTimer();
+    
+    timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          clearInterval(timer);
+          stopTimer();
           handleAutoReject();
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
-
-    // Limpa timer se componente desmontar
-    return () => clearInterval(timer);
   };
 
   const handleAutoReject = () => {
@@ -94,21 +116,23 @@ export default function RideInviteModal({
     setIsProcessing(true);
 
     try {
-      console.log(`✋ Aceitando entrega ${deliveryId} via modal...`);
+      console.log(`✋ [RideInviteModal] Aceitando entrega ID: #${deliveryId}...`);
 
       const response = await deliveryService.acceptDelivery(deliveryId);
 
       if (response.success) {
+        console.log(`✅ [RideInviteModal] Entrega #${deliveryId} aceita com sucesso!`);
         onAccept(deliveryId);
         onClose();
       } else {
+        console.error(`❌ [RideInviteModal] Erro ao aceitar entrega #${deliveryId}:`, response.error);
         Alert.alert(
           "Erro",
           response.error || "Não foi possível aceitar a entrega"
         );
       }
     } catch (error) {
-      console.error("❌ Erro ao aceitar entrega:", error);
+      console.error(`❌ [RideInviteModal] Exceção ao aceitar entrega #${deliveryId}:`, error);
       Alert.alert("Erro", "Erro de conexão. Tente novamente.");
     } finally {
       setIsProcessing(false);
@@ -121,20 +145,15 @@ export default function RideInviteModal({
     setIsProcessing(true);
 
     try {
-      console.log(`❌ Rejeitando entrega ${deliveryId}...`);
-
-      const response = await deliveryService.rejectDelivery(deliveryId, reason);
-
-      if (response.success) {
-        onReject(deliveryId);
-        onClose();
-      } else {
-        // Mesmo com erro, fecha o modal para não travar
-        onReject(deliveryId);
-        onClose();
-      }
+      console.log(`❌ [RideInviteModal] Rejeitando entrega ID: #${deliveryId} (apenas localmente)...`);
+      
+      // Rejeição é apenas local - não envia nada para o backend
+      onReject(deliveryId);
+      onClose();
+      
+      console.log(`✅ [RideInviteModal] Entrega #${deliveryId} marcada como rejeitada localmente`);
     } catch (error) {
-      console.error("❌ Erro ao rejeitar entrega:", error);
+      console.error(`❌ [RideInviteModal] Erro ao rejeitar entrega #${deliveryId}:`, error);
       // Mesmo com erro, fecha o modal
       onReject(deliveryId);
       onClose();
@@ -160,20 +179,25 @@ export default function RideInviteModal({
 
   // Funções helpers para extrair dados
   const getClientName = (): string => {
-    if (!deliveryData) return "Cliente não informado";
+    if (!deliveryData) {
+      return "Cliente não informado";
+    }
 
-    return (
-      deliveryData.clientName ||
+    const name = deliveryData.clientName ||
       deliveryData.customerName ||
       deliveryData.userName ||
       deliveryData.client?.name ||
       deliveryData.user?.name ||
-      "Cliente não informado"
-    );
+      deliveryData.recipientName || // Campo do backend
+      "Cliente não informado";
+    
+    return name;
   };
 
   const getDeliveryValue = (): string => {
-    if (!deliveryData) return "Valor não informado";
+    if (!deliveryData) {
+      return "Valor não informado";
+    }
 
     const value =
       deliveryData.totalAmount ||
@@ -181,24 +205,30 @@ export default function RideInviteModal({
       deliveryData.price ||
       deliveryData.amount ||
       deliveryData.total ||
+      deliveryData.estimatedPayment || // Campo do backend
       0;
 
-    return typeof value === "number"
+    const formatted = typeof value === "number"
       ? `R$ ${value.toFixed(2).replace(".", ",")}`
       : `R$ ${value}`;
+    
+    return formatted;
   };
 
   const getDeliveryAddress = (): string => {
-    if (!deliveryData) return "Endereço não informado";
+    if (!deliveryData) {
+      return "Endereço não informado";
+    }
 
-    return (
-      deliveryData.toAddress ||
+    const address = deliveryData.toAddress ||
       deliveryData.address ||
       deliveryData.deliveryAddress ||
       deliveryData.destination ||
       deliveryData.location ||
-      "Endereço não informado"
-    );
+      deliveryData.dropoffAddress || // Campo do backend
+      "Endereço não informado";
+    
+    return address;
   };
 
   const getTimerColor = (): string => {
@@ -231,6 +261,12 @@ export default function RideInviteModal({
             <View style={[styles.timer, { backgroundColor: getTimerColor() }]}>
               <Text style={styles.timerText}>{timeLeft}s</Text>
             </View>
+          </View>
+
+          {/* ID da Entrega */}
+          <View style={styles.deliveryIdContainer}>
+            <Text style={styles.deliveryIdLabel}>ID:</Text>
+            <Text style={styles.deliveryIdValue}>#{deliveryId}</Text>
           </View>
 
           {/* Informações da entrega */}
@@ -339,6 +375,30 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     textAlign: "center",
     marginBottom: 12,
+  },
+  deliveryIdContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#0f172a",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#334155",
+  },
+  deliveryIdLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#94a3b8",
+    marginRight: 6,
+  },
+  deliveryIdValue: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#60a5fa",
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   timer: {
     paddingHorizontal: 16,

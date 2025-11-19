@@ -2,12 +2,10 @@
 
 export const ENV = {
   // API
-  API_URL: __DEV__ 
-    ? 'http://localhost:8080/api' 
-    : 'https://api.mvt.com.br/api',
+  API_URL: 'https://mvt-events-api.onrender.com/api',
   
   // Google Maps
-  GOOGLE_MAPS_API_KEY: '', // Adicionar sua chave aqui
+  GOOGLE_MAPS_API_KEY: 'AIzaSyBpJ-PEX_eQunOFbDXKLC3Xr3q69xoROmU',
   
   // Firebase (Push Notifications)
   FIREBASE_PROJECT_ID: '',

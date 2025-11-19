@@ -134,15 +134,48 @@ class DeliveryService {
 
   /**
    * Aceita uma entrega
+   * CONSTRAINT: Apenas 1 entrega ACCEPTED por vez
    */
   async acceptDelivery(deliveryId: string): Promise<DeliveryResponse> {
     try {
       console.log(`✋ Aceitando delivery ${deliveryId}...`);
       
-      // Pode ser um PATCH para atualizar status ou um POST para aceitar
-      const response = await apiClient.post<DeliveryEntity>(`/deliveries/${deliveryId}/accept`);
+      // 🔒 CONSTRAINT: Verifica se já existe entrega ACCEPTED
+      const { deliveryPollingService } = require('./deliveryPollingService');
+      const hasAcceptedDelivery = await deliveryPollingService.hasAcceptedDelivery();
       
-      console.log('✅ Delivery aceito com sucesso');
+      if (hasAcceptedDelivery) {
+        console.warn('⚠️ Já existe uma entrega ACCEPTED. Você deve concluir ou cancelar a entrega atual antes de aceitar outra.');
+        return {
+          success: false,
+          error: 'Você já tem uma entrega aceita. Conclua ou cancele ela antes de aceitar outra.'
+        };
+      }
+      
+      // Busca o usuário logado para pegar o courierId
+      const { authService } = require('./authService');
+      const user = await authService.getCurrentUser();
+      
+      if (!user || !user.id) {
+        console.error('❌ Usuário não encontrado ou sem ID');
+        return {
+          success: false,
+          error: 'Usuário não autenticado'
+        };
+      }
+      
+      console.log(`📦 Enviando courierId: ${user.id}`);
+      
+      // Envia o courierId no body da requisição (PATCH)
+      const response = await apiClient.patch<DeliveryEntity>(
+        `/deliveries/${deliveryId}/accept`,
+        { courierId: user.id }
+      );
+      
+      console.log('✅ Delivery aceito com sucesso, status:', response.data.status);
+      
+      // Atualiza a entrega no storage local com o novo status
+      await deliveryPollingService.updateDeliveryInStorage(deliveryId, response.data);
       
       return {
         success: true,
@@ -185,7 +218,151 @@ class DeliveryService {
   }
 
   /**
+   * Marca entrega como coletada (PICKED_UP)
+   * Backend usa courier do token (sem body necessário)
+   */
+  async pickupDelivery(deliveryId: string): Promise<DeliveryResponse> {
+    try {
+      console.log(`📦 Coletando delivery ${deliveryId}...`);
+      
+      // PATCH sem body - backend usa courier do token
+      const response = await apiClient.patch<DeliveryEntity>(
+        `/deliveries/${deliveryId}/pickup`
+      );
+      
+      console.log('✅ Delivery coletado com sucesso, status:', response.data.status);
+      
+      // Atualiza a entrega no storage local com os dados do backend
+      const { deliveryPollingService } = require('./deliveryPollingService');
+      await deliveryPollingService.updateDeliveryInStorage(deliveryId, response.data);
+      
+      return {
+        success: true,
+        data: response.data,
+        message: 'Entrega coletada com sucesso!'
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao coletar delivery:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || 'Erro ao coletar entrega'
+      };
+    }
+  }
+
+  /**
+   * Marca entrega como em trânsito (IN_TRANSIT)
+   * Backend usa courier do token (sem body necessário)
+   */
+  async startTransitDelivery(deliveryId: string): Promise<DeliveryResponse> {
+    try {
+      console.log(`🚚 Iniciando trânsito do delivery ${deliveryId}...`);
+      
+      // PATCH sem body - backend usa courier do token
+      const response = await apiClient.patch<DeliveryEntity>(
+        `/deliveries/${deliveryId}/transit`
+      );
+      
+      console.log('✅ Delivery em trânsito, status:', response.data.status);
+      
+      // Atualiza a entrega no storage local com os dados do backend
+      const { deliveryPollingService } = require('./deliveryPollingService');
+      await deliveryPollingService.updateDeliveryInStorage(deliveryId, response.data);
+      
+      return {
+        success: true,
+        data: response.data,
+        message: 'Entrega em trânsito!'
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao iniciar trânsito:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || 'Erro ao iniciar trânsito'
+      };
+    }
+  }
+
+  /**
+   * Marca entrega como completada (COMPLETED)
+   * Backend usa courier do token (sem body necessário)
+   */
+  async completeDelivery(deliveryId: string): Promise<DeliveryResponse> {
+    try {
+      console.log(`✅ Completando delivery ${deliveryId}...`);
+      
+      // PATCH sem body - backend usa courier do token
+      const response = await apiClient.patch<DeliveryEntity>(
+        `/deliveries/${deliveryId}/complete`
+      );
+      
+      console.log('✅ Delivery completado com sucesso, status:', response.data.status);
+      
+      // Atualiza a entrega no storage local com os dados do backend
+      const { deliveryPollingService } = require('./deliveryPollingService');
+      await deliveryPollingService.updateDeliveryInStorage(deliveryId, response.data);
+      
+      return {
+        success: true,
+        data: response.data,
+        message: 'Entrega completada com sucesso!'
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao completar delivery:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || 'Erro ao completar entrega'
+      };
+    }
+  }
+
+  /**
+   * Cancela uma entrega
+   * Status volta para PENDING e remove courier
+   */
+  async cancelDelivery(deliveryId: string, reason: string): Promise<DeliveryResponse> {
+    try {
+      console.log(`❌ Cancelando delivery ${deliveryId}...`);
+      
+      if (!reason || reason.trim() === '') {
+        return {
+          success: false,
+          error: 'Motivo do cancelamento é obrigatório'
+        };
+      }
+      
+      // PATCH com reason como query parameter
+      const response = await apiClient.patch<DeliveryEntity>(
+        `/deliveries/${deliveryId}/cancel`,
+        null,
+        {
+          params: { reason }
+        }
+      );
+      
+      console.log('✅ Delivery cancelado com sucesso');
+      
+      // Remove do storage local (volta para PENDING sem courier)
+      const { deliveryPollingService } = require('./deliveryPollingService');
+      await deliveryPollingService.removeDeliveryFromStorage(deliveryId);
+      
+      return {
+        success: true,
+        data: response.data,
+        message: 'Entrega cancelada com sucesso!'
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao cancelar delivery:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || 'Erro ao cancelar entrega'
+      };
+    }
+  }
+
+  /**
    * Atualiza status de uma entrega
+   * @deprecated Use métodos específicos: pickupDelivery, startTransitDelivery, completeDelivery
    */
   async updateDeliveryStatus(
     deliveryId: string, 
@@ -263,6 +440,81 @@ class DeliveryService {
       return {
         success: false,
         error: error.response?.data?.message || 'Erro ao buscar entregas'
+      };
+    }
+  }
+
+  /**
+   * Busca entregas ATIVAS do motoboy logado
+   * Retorna: ACCEPTED, PICKED_UP, IN_TRANSIT
+   * Filtrado pelo campo courier (motoboy)
+   */
+  async getMyActiveDeliveries(): Promise<DeliveryResponse> {
+    try {
+      console.log('🚚 Buscando minhas entregas ativas (ACCEPTED, PICKED_UP, IN_TRANSIT)...');
+      
+      const response = await apiClient.get<DeliveryListResponse>('/deliveries', {
+        params: {
+          courierFilter: 'mine', // Filtra pelo motoboy logado
+          status: 'ACCEPTED,PICKED_UP,IN_TRANSIT',
+          sort: 'acceptedAt,desc',
+          size: 50
+        }
+      });
+      
+      console.log(`✅ ${response.data.content.length} entregas ativas encontradas`);
+      
+      return {
+        success: true,
+        data: response.data.content
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao buscar entregas ativas:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || 'Erro ao buscar entregas ativas'
+      };
+    }
+  }
+
+  /**
+   * Busca entregas COMPLETADAS do motoboy logado
+   * Retorna: COMPLETED
+   * Filtrado pelo campo courier (motoboy)
+   */
+  async getMyCompletedDeliveries(): Promise<DeliveryResponse> {
+    try {
+      console.log('✅ Buscando minhas entregas completadas...');
+      console.log('📋 Parâmetros da requisição:', {
+        courierFilter: 'mine',
+        status: 'COMPLETED',
+        sort: 'completedAt,desc',
+        size: 50
+      });
+      
+      const response = await apiClient.get<DeliveryListResponse>('/deliveries', {
+        params: {
+          courierFilter: 'mine', // Filtra pelo motoboy logado
+          status: 'COMPLETED',
+          sort: 'completedAt,desc',
+          size: 50
+        }
+      });
+      
+      console.log(`✅ ${response.data.content.length} entregas completadas encontradas no backend`);
+      console.log(`📋 IDs retornados:`, response.data.content.map(d => d.id).join(', '));
+      console.log(`📊 Status de cada entrega:`, response.data.content.map(d => ({ id: d.id, status: d.status, courier: d.courier?.id })));
+      
+      return {
+        success: true,
+        data: response.data.content
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao buscar entregas completadas:', error);
+      console.error('📋 Detalhes do erro:', error.response?.data);
+      return {
+        success: false,
+        error: error.response?.data?.message || 'Erro ao buscar entregas completadas'
       };
     }
   }

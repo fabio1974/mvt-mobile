@@ -1,29 +1,37 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ENV from '../config/env';
 
-// URL da API - configurar via .env em produção
-// Para dispositivos físicos, usar IP da rede local
-// Para simulador iOS, pode usar localhost ou 127.0.0.1
-const API_URL = __DEV__ 
-  ? 'http://192.168.1.254:8080/api' // IP do seu Mac na rede local
-  : 'https://api.mvt.com.br/api'; // Production
+/**
+ * Gera comando curl equivalente para debug
+ */
+const generateCurlCommand = (config: any): string => {
+  const method = (config.method || 'get').toUpperCase();
+  const url = config.baseURL ? `${config.baseURL}${config.url}` : config.url;
+  const headers = config.headers || {};
+  
+  let curl = `curl -X ${method} '${url}'`;
+  
+  // Adiciona headers
+  Object.keys(headers).forEach(key => {
+    if (headers[key] && key !== 'common' && key !== 'delete' && key !== 'get' && 
+        key !== 'head' && key !== 'post' && key !== 'put' && key !== 'patch') {
+      curl += ` \\\n  -H '${key}: ${headers[key]}'`;
+    }
+  });
+  
+  // Adiciona body (se houver)
+  if (config.data) {
+    const data = typeof config.data === 'string' ? config.data : JSON.stringify(config.data, null, 2);
+    curl += ` \\\n  -d '${data}'`;
+  }
+  
+  return curl;
+};
 
 // Função para detectar se está rodando no simulador ou dispositivo físico
 const getApiUrl = () => {
-  if (__DEV__) {
-    // Para desenvolvimento, detecta automaticamente a plataforma
-    
-    // Opção 1: Localhost (funciona no simulador e navegador web)
-    return 'http://localhost:8080/api';
-    
-    // Opção 2: IP da rede local (descomente para dispositivos físicos)
-    // return 'http://192.168.1.254:8080/api';
-    
-    // Opção 3: Para emulador Android (descomente se estiver usando emulador)
-    // return 'http://10.0.2.2:8080/api';
-  }
-  
-  return 'https://api.mvt.com.br/api'; // Production
+  return ENV.API_URL;
 };
 
 class ApiClient {
@@ -42,7 +50,7 @@ class ApiClient {
   }
 
   private setupInterceptors() {
-    // Request interceptor - adiciona token de autenticação
+    // Request interceptor - adiciona token de autenticação e loga requisições
     this.client.interceptors.request.use(
       async (config) => {
         const token = await AsyncStorage.getItem('auth_token');
@@ -51,9 +59,18 @@ class ApiClient {
           config.headers.Authorization = `Bearer ${token}`;
         }
 
-        // Log apenas em desenvolvimento
+        // Log detalhado em desenvolvimento
         if (__DEV__) {
-          console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`);
+          console.log('\n� =============== REQUEST ===============');
+          console.log(`📤 ${config.method?.toUpperCase()} ${config.url}`);
+          console.log('📍 Base URL:', config.baseURL);
+          console.log('📋 Headers:', JSON.stringify(config.headers, null, 2));
+          if (config.data) {
+            console.log('📦 Body:', typeof config.data === 'string' ? config.data : JSON.stringify(config.data, null, 2));
+          }
+          console.log('\n🔧 CURL Equivalente:');
+          console.log(generateCurlCommand(config));
+          console.log('========================================\n');
         }
         
         return config;
@@ -64,19 +81,38 @@ class ApiClient {
       }
     );
 
-    // Response interceptor - trata erros globalmente
+    // Response interceptor - loga respostas e trata erros
     this.client.interceptors.response.use(
       (response) => {
-        // Log apenas em desenvolvimento
+        // Log detalhado em desenvolvimento
         if (__DEV__) {
-          console.log(`📥 API Response: ${response.config.url} - ${response.status}`);
+          console.log('\n✅ =============== RESPONSE ===============');
+          console.log(`📥 ${response.config.method?.toUpperCase()} ${response.config.url}`);
+          console.log('📊 Status:', response.status, response.statusText);
+          console.log('📋 Headers:', JSON.stringify(response.headers, null, 2));
+          console.log('📦 Data:', JSON.stringify(response.data, null, 2));
+          console.log('=========================================\n');
         }
         return response;
       },
       async (error) => {
         const status = error.response?.status;
         
-        console.error(`❌ API Error: ${error.config?.url} - ${status}`, error.response?.data);
+        // Log detalhado do erro
+        console.error('\n❌ =============== ERROR ===============');
+        console.error(`🔴 ${error.config?.method?.toUpperCase()} ${error.config?.url}`);
+        console.error('📊 Status:', status, error.response?.statusText);
+        console.error('📋 Response Headers:', JSON.stringify(error.response?.headers, null, 2));
+        console.error('📦 Response Data:', JSON.stringify(error.response?.data, null, 2));
+        console.error('💬 Error Message:', error.message);
+        if (error.config?.data) {
+          console.error('📤 Request Data:', typeof error.config.data === 'string' 
+            ? error.config.data 
+            : JSON.stringify(error.config.data, null, 2));
+        }
+        console.error('\n🔧 CURL para reproduzir:');
+        console.error(generateCurlCommand(error.config));
+        console.error('=======================================\n');
 
         // 401 - Token expirado ou inválido
         if (status === 401) {

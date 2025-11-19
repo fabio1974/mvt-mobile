@@ -6,8 +6,10 @@ import {
   Animated,
   Dimensions,
   TouchableOpacity,
+  Image,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import GradientText from "../../components/GradientText";
 
 const { width, height } = Dimensions.get("window");
 
@@ -62,9 +64,13 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
           ]}
         >
           <View style={styles.logoIcon}>
-            <Text style={styles.logoEmoji}>⚡</Text>
+            <Image 
+              source={require('../../../assets/icon.png')} 
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
-          <Text style={styles.appName}>Zapi10</Text>
+          <GradientText style={styles.appName}>Zapi10</GradientText>
           <Text style={styles.tagline}>Delivery & Logistics</Text>
         </Animated.View>
 
@@ -159,13 +165,10 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 30,
-    backgroundColor: "#1a1a2e",
-    borderWidth: 3,
-    borderColor: "#e94560",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 24,
-    shadowColor: "#e94560",
+    shadowColor: "#25D366",
     shadowOffset: {
       width: 0,
       height: 8,
@@ -173,6 +176,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
+  },
+  logoImage: {
+    width: 114,
+    height: 114,
   },
   logoEmoji: {
     fontSize: 50,

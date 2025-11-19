@@ -1,5 +1,5 @@
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { Platform, Alert, AppState } from 'react-native';
 import { apiClient } from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  * Gerencia registro, recebimento e processamento de notificações
  */
 
-interface NotificationData {
+export interface NotificationData {
   type: 'delivery_invite' | 'delivery_update' | 'delivery_cancelled';
   deliveryId: string;
   message: string;
@@ -22,41 +22,75 @@ interface PushTokenResponse {
 
 // Configuração das notificações
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    console.log('========================================');
+    console.log('🔔🔔🔔 HANDLER DISPARADO! 🔔🔔🔔');
+    console.log('========================================');
+    console.log('📬 Notificação completa:', JSON.stringify(notification, null, 2));
+    console.log('📝 Title:', notification.request.content.title);
+    console.log('📝 Body:', notification.request.content.body);
+    console.log('📝 Data:', JSON.stringify(notification.request.content.data, null, 2));
+    console.log('========================================');
+    
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    };
+  },
 });
 
 class NotificationService {
   private pushToken: string | null = null;
   private isInitialized = false;
   private notificationListeners: any[] = [];
+  private onDeliveryInviteCallback: ((data: NotificationData) => void) | null = null;
+
+  /**
+   * Registra callback para quando receber convite de entrega
+   */
+  setOnDeliveryInvite(callback: (data: NotificationData) => void): void {
+    this.onDeliveryInviteCallback = callback;
+    console.log('✅ Callback de delivery invite registrado');
+  }
 
   /**
    * Inicializa o serviço de notificações
    */
   async initialize(): Promise<boolean> {
     try {
+      console.log('========================================');
+      console.log('🚀 INICIALIZANDO NOTIFICATION SERVICE');
+      console.log('📱 App State:', AppState.currentState);
+      console.log('📱 Platform:', Platform.OS);
+      console.log('========================================');
+      
       // Solicita permissões
       const hasPermission = await this.requestPermissions();
       
       if (!hasPermission) {
-        console.warn('Permissões de notificação negadas');
+        console.warn('⚠️ Permissões de notificação negadas');
         return false;
       }
 
       // Registra token push
-      await this.registerPushToken();
+      try {
+        await this.registerPushToken();
+      } catch (error: any) {
+        // Se falhar ao registrar token (ex: falta projectId), continua sem push
+        console.warn('⚠️ Push notifications desabilitadas:', error.message);
+        console.warn('⚠️ O app funcionará normalmente, mas sem notificações push remotas');
+        console.warn('⚠️ Para habilitar: Crie um projeto no Expo e adicione projectId ao app.json');
+        // NÃO lança erro, apenas continua
+      }
 
       // Configura listeners
       this.setupNotificationListeners();
 
       this.isInitialized = true;
-      console.log('✅ Serviço de notificações inicializado');
+      console.log('✅ Serviço de notificações inicializado (notificações locais disponíveis)');
       return true;
     } catch (error) {
       console.error('❌ Erro ao inicializar notificações:', error);
@@ -112,12 +146,27 @@ class NotificationService {
         // Para web, usar Push API nativa do browser
         token = await this.generateWebPushToken();
       } else {
-        // Para mobile, usar Expo push token
+        // Para mobile (Expo Go ou Build), obtém token do Expo
+        console.log('📱 ==========================================');
+        console.log('📱 Solicitando token do Expo Push...');
+        console.log('📱 Platform:', Platform.OS);
+        console.log('📱 __DEV__:', __DEV__);
+        console.log('📱 Project ID: d4a3b53e-0dbc-48c1-a865-cf9eff2dd52c');
+        console.log('📱 ==========================================');
+        
+        // Usa projectId real do Expo
         const tokenData = await Notifications.getExpoPushTokenAsync({
-          projectId: 'mvt-mobile-delivery-system',
-          applicationId: 'com.mvt.mobile.delivery'
+          projectId: 'd4a3b53e-0dbc-48c1-a865-cf9eff2dd52c'
         });
         token = tokenData.data;
+        
+        console.log('✅ ==========================================');
+        console.log('✅ Token Expo REAL obtido com sucesso!');
+        console.log('✅ Tipo:', token.substring(0, 20) + '...');
+        console.log('✅ Token completo:', token);
+        console.log('✅ É ExponentPushToken?', token.startsWith('ExponentPushToken'));
+        console.log('✅ É ExpoToken?', token.startsWith('ExpoToken'));
+        console.log('✅ ==========================================');
       }
       
       this.pushToken = token;
@@ -125,14 +174,25 @@ class NotificationService {
       // Salva localmente
       await AsyncStorage.setItem('push_token', token);
 
+      console.log('📤 Enviando token REAL para backend...');
+
       // Envia para o backend
       const result = await this.sendTokenToBackend(token);
       
       if (!result.success) {
         throw new Error(result.message || 'Falha ao registrar token no backend');
       }
-    } catch (error) {
-      console.error('Erro ao registrar token push:', error);
+      
+      console.log('✅ ==========================================');
+      console.log('✅ Token REAL registrado no backend!');
+      console.log('✅ ==========================================');
+    } catch (error: any) {
+      console.error('❌ ==========================================');
+      console.error('❌ ERRO CRÍTICO ao registrar token push!');
+      console.error('❌ Erro:', error);
+      console.error('❌ Mensagem:', error.message);
+      console.error('❌ Stack:', error.stack);
+      console.error('❌ ==========================================');
       throw error;
     }
   }
@@ -160,11 +220,13 @@ class NotificationService {
         }
       }
 
-      console.log('📡 [Push Token] Enviando para backend...', {
-        platform: payload.platform,
-        deviceType: payload.deviceType,
-        tokenPreview: token.substring(0, 50) + '...'
-      });
+      console.log('📡 =============== ENVIANDO TOKEN PUSH PARA SEU BACKEND ===============');
+      console.log('📤 URL:', apiClient.getBaseURL() + '/users/push-token');
+      console.log('📦 Payload:', JSON.stringify(payload, null, 2));
+      console.log('🔑 Token Preview:', token.substring(0, 50) + '...');
+      console.log('📱 Platform:', payload.platform);
+      console.log('💻 Device Type:', payload.deviceType);
+      console.log('===================================================================\n');
 
       const response = await apiClient.post('/users/push-token', payload);
       
@@ -172,7 +234,7 @@ class NotificationService {
       
       return { success: true };
     } catch (error: any) {
-      console.error('Erro ao enviar token para backend:', error);
+      console.error('❌ [Push Token] Falha ao registrar token no SEU backend');
       return {
         success: false,
         message: error.response?.data?.message || 'Erro ao registrar token',
@@ -184,30 +246,70 @@ class NotificationService {
    * Configura listeners para notificações
    */
   setupNotificationListeners(): void {
+    console.log('========================================');
+    console.log('🎧 CONFIGURANDO NOTIFICATION LISTENERS');
+    console.log('========================================');
+    
     // Listener para quando app está em foreground
+    console.log('🔧 Criando foreground listener...');
     const foregroundListener = Notifications.addNotificationReceivedListener(
-      this.handleForegroundNotification.bind(this)
+      (notification) => {
+        console.log('🔔🔔🔔 LISTENER CHAMADO! 🔔🔔🔔');
+        this.handleForegroundNotification(notification);
+      }
     );
+    console.log('✅ Foreground listener registrado:', foregroundListener);
 
     // Listener para quando usuário toca na notificação
+    console.log('🔧 Criando response listener...');
     const responseListener = Notifications.addNotificationResponseReceivedListener(
-      this.handleNotificationResponse.bind(this)
+      (response) => {
+        console.log('👆👆👆 RESPONSE LISTENER CHAMADO! 👆👆👆');
+        this.handleNotificationResponse(response);
+      }
     );
+    console.log('✅ Response listener registrado:', responseListener);
 
     this.notificationListeners = [foregroundListener, responseListener];
-    console.log('👂 Listeners de notificação configurados');
+    console.log('👂 Listeners de notificação configurados e salvos');
+    console.log('📊 Total de listeners:', this.notificationListeners.length);
+    console.log('========================================');
   }
 
   /**
    * Processa notificação recebida em foreground
    */
   private handleForegroundNotification(notification: Notifications.Notification): void {
-    // Log apenas se for uma notificação de entrega
+    console.log('========================================');
+    console.log('📬 FOREGROUND NOTIFICATION RECEIVED!');
+    console.log('========================================');
+    console.log('Notification object:', JSON.stringify(notification, null, 2));
 
     const data = notification.request.content.data as unknown as NotificationData;
+    const title = notification.request.content.title || 'Nova Notificação';
+    const body = notification.request.content.body || '';
     
+    console.log('📝 Título:', title);
+    console.log('📝 Corpo:', body);
+    console.log('📝 Data:', JSON.stringify(data, null, 2));
+    
+    // Se é convite de entrega, chama o callback DIRETAMENTE (abre o modal)
     if (data?.type === 'delivery_invite') {
+      console.log('🚚 [MainApp] Callback de delivery invite chamado!');
+      console.log('🚚 Tipo: delivery_invite - CHAMANDO CALLBACK DIRETAMENTE');
+      
+      // CHAMA O CALLBACK IMEDIATAMENTE (abre modal)
       this.handleDeliveryInvite(data);
+      
+      console.log('✅ Callback de delivery invite executado - Modal deve abrir agora!');
+    } else {
+      // Para outros tipos, mostra alert
+      console.log('📌 Tipo genérico - Mostrando alert simples');
+      Alert.alert(title, body, [{ 
+        text: 'OK',
+        onPress: () => console.log('✅ Alert OK pressionado')
+      }]);
+      console.log('✅ Alert.alert() simples chamado');
     }
   }
 
@@ -231,14 +333,13 @@ class NotificationService {
   private handleDeliveryInvite(data: NotificationData): void {
     console.log('🚚 Convite de entrega recebido:', data);
     
-    // Aqui você pode:
-    // 1. Mostrar modal de aceitar/rejeitar
-    // 2. Reproduzir som especial
-    // 3. Vibrar o dispositivo
-    // 4. Atualizar estado da aplicação
-    
-    // Exemplo: disparar evento customizado
-    // EventEmitter.emit('delivery_invite', data);
+    // Se há callback registrado, chama ele (MainApp vai abrir o modal)
+    if (this.onDeliveryInviteCallback) {
+      console.log('📲 Chamando callback de delivery invite');
+      this.onDeliveryInviteCallback(data);
+    } else {
+      console.warn('⚠️ Nenhum callback registrado para delivery invite');
+    }
   }
 
   /**
@@ -290,6 +391,31 @@ class NotificationService {
         message: 'Nova entrega próxima à sua localização',
       }
     );
+  }
+
+  /**
+   * Simula recebimento direto de notificação (chama o callback)
+   * Útil para testar o fluxo sem depender do sistema de notificações
+   */
+  simulateDirectDeliveryInvite(deliveryId: string): void {
+    console.log('🧪 Simulando recebimento DIRETO de notificação');
+    
+    const testData: NotificationData = {
+      type: 'delivery_invite',
+      deliveryId: deliveryId,
+      message: 'Nova entrega disponível!',
+      data: {
+        pickup: 'Rua A, 123 - Ubajara',
+        dropoff: 'Rua B, 456 - Ubajara',
+        distance: '2.5 km',
+        payment: 'R$ 15,00'
+      }
+    };
+    
+    console.log('📦 Dados simulados:', testData);
+    
+    // Chama o handler diretamente
+    this.handleDeliveryInvite(testData);
   }
 
   /**

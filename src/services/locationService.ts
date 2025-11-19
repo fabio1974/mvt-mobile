@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { userLocationService } from './userLocationService';
 
 // Nome da task de background
@@ -10,6 +11,13 @@ const LOCATION_TASK_NAME = 'background-location-task';
 const LOCATION_UPDATE_INTERVAL = 30000; // 30 segundos
 const LOCATION_ACCURACY = Location.Accuracy.Balanced;
 const LOCATION_DISTANCE_INTERVAL = 10; // metros
+
+/**
+ * Detecta se está rodando no Expo Go
+ */
+const isRunningInExpoGo = (): boolean => {
+  return Constants.appOwnership === 'expo';
+};
 
 interface LocationData {
   latitude: number;
@@ -27,31 +35,142 @@ class LocationService {
   private isTracking = false;
   private lastUpdate = 0;
   private updateInterval = LOCATION_UPDATE_INTERVAL;
+  private useMockLocation = false;
+  private mockLocationData: LocationData | null = null;
+  private mockMovementEnabled = false;
+  
+  // Centro de Ubajara-CE (Praça da Matriz)
+  private readonly UBAJARA_CENTER = {
+    latitude: -3.8566,
+    longitude: -40.9219
+  };
+
+  /**
+   * Inicializa o serviço de localização
+   * Se estiver no Expo Go, ativa mock automaticamente
+   */
+  async initialize(): Promise<void> {
+    if (isRunningInExpoGo()) {
+      console.log('🎭 Detectado Expo Go - ativando mock de localização automaticamente');
+      this.enableMockLocation(undefined, undefined, false);
+    } else {
+      console.log('📱 Detectado app standalone - usando localização real');
+    }
+  }
+
+  /**
+   * Ativa modo mock de localização para desenvolvimento
+   * Por padrão usa coordenadas de Ubajara-CE
+   */
+  enableMockLocation(latitude?: number, longitude?: number, enableMovement: boolean = false): void {
+    this.useMockLocation = true;
+    this.mockMovementEnabled = enableMovement;
+    this.mockLocationData = {
+      latitude: latitude || this.UBAJARA_CENTER.latitude,
+      longitude: longitude || this.UBAJARA_CENTER.longitude,
+      accuracy: 10,
+      timestamp: Date.now()
+    };
+    console.log('🎭 Mock de localização ativado (Ubajara-CE):', this.mockLocationData);
+    console.log(`📍 Movimento ${enableMovement ? 'ATIVADO' : 'DESATIVADO'}`);
+  }
+
+  /**
+   * Desativa modo mock de localização
+   */
+  disableMockLocation(): void {
+    this.useMockLocation = false;
+    this.mockLocationData = null;
+    this.mockMovementEnabled = false;
+    console.log('✅ Mock de localização desativado');
+  }
+
+  /**
+   * Verifica se está usando mock
+   */
+  isMockLocationEnabled(): boolean {
+    return this.useMockLocation;
+  }
+
+  /**
+   * Simula pequeno deslocamento (como um motoboy se movendo)
+   * Varia entre 0-50 metros em direção aleatória
+   */
+  private simulateMovement(current: LocationData): LocationData {
+    if (!this.mockMovementEnabled) {
+      return current;
+    }
+
+    // Probabilidade de 30% de se mover (motoboy pode estar parado)
+    if (Math.random() > 0.3) {
+      return {
+        ...current,
+        timestamp: Date.now()
+      };
+    }
+
+    // Pequeno deslocamento (0-50 metros)
+    // 1 grau de latitude ≈ 111km, então 0.0001° ≈ 11 metros
+    const maxDelta = 0.0005; // ~50 metros
+    const deltaLat = (Math.random() - 0.5) * maxDelta;
+    const deltaLng = (Math.random() - 0.5) * maxDelta;
+
+    const newLocation = {
+      latitude: current.latitude + deltaLat,
+      longitude: current.longitude + deltaLng,
+      accuracy: current.accuracy,
+      timestamp: Date.now()
+    };
+
+    console.log('🚶 Mock: Simulando movimento leve:', {
+      from: { lat: current.latitude.toFixed(6), lng: current.longitude.toFixed(6) },
+      to: { lat: newLocation.latitude.toFixed(6), lng: newLocation.longitude.toFixed(6) },
+      distance: '~' + Math.round(Math.sqrt(deltaLat**2 + deltaLng**2) * 111000) + 'm'
+    });
+
+    return newLocation;
+  }
 
   /**
    * Solicita permissões de localização
    */
-  async requestPermissions(): Promise<boolean> {
+  async requestPermissions(forceRequest: boolean = false): Promise<boolean> {
     try {
-      // Solicita permissão para localização em foreground
-      const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
-      
-      if (foregroundStatus !== 'granted') {
-        console.log('❌ Permissão de localização negada');
-        return false;
+      // Se está em modo mock e não está forçando, não precisa pedir permissões
+      if (this.useMockLocation && !forceRequest) {
+        console.log('🎭 Modo mock - pulando solicitação de permissões');
+        return true;
       }
-
-      // Solicita permissão para localização em background
-      const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
       
-      if (backgroundStatus !== 'granted') {
-        console.log('⚠️ Permissão de background negada - apenas foreground disponível');
+      console.log('📍 Verificando permissões de localização...');
+      
+      // Verifica permissões atuais
+      let { status } = await Location.getForegroundPermissionsAsync();
+      
+      if (status === 'granted') {
+        console.log('✅ Permissões de localização já concedidas');
+        return true;
       }
-
-      console.log('✅ Permissões de localização concedidas');
-      return true;
+      
+      // Se estamos forçando ou não está em mock, solicita permissões
+      if (forceRequest || !this.useMockLocation) {
+        console.log('🔐 Solicitando permissões de localização...');
+        const response = await Location.requestForegroundPermissionsAsync();
+        status = response.status;
+        
+        if (status === 'granted') {
+          console.log('✅ Permissões concedidas!');
+          return true;
+        } else {
+          console.log('❌ Permissões negadas pelo usuário');
+          return false;
+        }
+      }
+      
+      console.log('⚠️ Permissões de localização não concedidas - operando em modo restrito');
+      return false;
     } catch (error) {
-      console.error('❌ Erro ao solicitar permissões:', error);
+      console.error('❌ Erro ao verificar permissões:', error);
       return false;
     }
   }
@@ -61,8 +180,34 @@ class LocationService {
    */
   async startTracking(): Promise<boolean> {
     try {
+      // Se está em modo mock, não precisa de permissões
+      if (this.useMockLocation) {
+        console.log('🎭 Modo mock ativado - iniciando tracking sem permissões');
+        
+        // Verifica se já está fazendo tracking
+        if (this.isTracking) {
+          return true;
+        }
+
+        // Inicia tracking em foreground com mock
+        await this.startForegroundTracking();
+        this.isTracking = true;
+        console.log('🚀 Location tracking iniciado (modo mock)');
+        return true;
+      }
+
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
+        // Em DEV, permite iniciar tracking mesmo sem permissões (usa fallback)
+        if (__DEV__) {
+          console.log('⚠️ Sem permissões mas em DEV - iniciando com fallback');
+          if (!this.isTracking) {
+            await this.startForegroundTracking();
+            this.isTracking = true;
+            console.log('🚀 Location tracking iniciado (modo fallback)');
+          }
+          return true;
+        }
         return false;
       }
 
@@ -110,9 +255,28 @@ class LocationService {
    * Obtém localização atual uma vez
    */
   async getCurrentLocation(): Promise<LocationData | null> {
+    // Se mock está ativado, retorna a localização mockada com movimento simulado
+    if (this.useMockLocation && this.mockLocationData) {
+      const simulatedLocation = this.simulateMovement(this.mockLocationData);
+      // Atualiza para próxima chamada
+      this.mockLocationData = simulatedLocation;
+      return simulatedLocation;
+    }
+
     try {
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
+        console.log('⚠️ Sem permissões - tentando usar localização padrão');
+        // Se não tem permissão mas está em DEV, retorna coordenadas de Ubajara-CE como fallback
+        if (__DEV__) {
+          console.log('🎭 Usando localização padrão de Ubajara-CE');
+          return {
+            latitude: this.UBAJARA_CENTER.latitude,
+            longitude: this.UBAJARA_CENTER.longitude,
+            accuracy: 100,
+            timestamp: Date.now()
+          };
+        }
         return null;
       }
 
@@ -128,6 +292,18 @@ class LocationService {
       };
     } catch (error) {
       console.error('❌ Erro ao obter localização:', error);
+      
+      // Em desenvolvimento, retorna coordenadas de Ubajara-CE como fallback
+      if (__DEV__) {
+        console.log('🎭 Erro ao obter localização real - usando Ubajara-CE como fallback');
+        return {
+          latitude: this.UBAJARA_CENTER.latitude,
+          longitude: this.UBAJARA_CENTER.longitude,
+          accuracy: 100,
+          timestamp: Date.now()
+        };
+      }
+      
       return null;
     }
   }
@@ -178,15 +354,13 @@ class LocationService {
   /**
    * Atualiza localização do usuário no backend
    */
-  async updateUserLocation(location: LocationData): Promise<LocationUpdateResponse> {
+  async updateUserLocation(location: LocationData, forceUpdate: boolean = false): Promise<LocationUpdateResponse> {
     try {
-      // Evita updates muito frequentes
+      // Evita updates muito frequentes (exceto se forçado)
       const now = Date.now();
-      if (now - this.lastUpdate < this.updateInterval) {
+      if (!forceUpdate && now - this.lastUpdate < this.updateInterval) {
         return { success: true };
       }
-
-      console.log(`📍 Atualizando localização: ${location.latitude}, ${location.longitude}`);
 
       // Atualiza no backend usando o serviço específico
       const response = await userLocationService.updateCurrentUserLocation(
@@ -196,7 +370,6 @@ class LocationService {
 
       if (response.success) {
         this.lastUpdate = now;
-        console.log('✅ Localização atualizada no backend');
         return { success: true };
       } else {
         return { 
@@ -218,7 +391,6 @@ class LocationService {
    */
   setUpdateInterval(interval: number): void {
     this.updateInterval = Math.max(interval, 10000); // Mínimo 10 segundos
-    console.log(`🔧 Intervalo de update definido para ${this.updateInterval}ms`);
   }
 
   /**
