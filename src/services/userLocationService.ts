@@ -2,8 +2,8 @@ import { apiClient } from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface UserLocationUpdate {
-  latitude: number;
-  longitude: number;
+  gpsLatitude: number;
+  gpsLongitude: number;
   updatedAt?: string;
 }
 
@@ -42,8 +42,8 @@ class UserLocationService {
       }
 
       const updateData: UserLocationUpdate = {
-        latitude,
-        longitude,
+        gpsLatitude: latitude,
+        gpsLongitude: longitude,
         updatedAt: new Date().toISOString(),
       };
 
@@ -78,8 +78,8 @@ class UserLocationService {
   ): Promise<LocationResponse> {
     try {
       const updateData: UserLocationUpdate = {
-        latitude,
-        longitude,
+        gpsLatitude: latitude,
+        gpsLongitude: longitude,
         updatedAt: new Date().toISOString(),
       };
 
@@ -111,11 +111,11 @@ class UserLocationService {
     try {
       const response = await apiClient.get('/users/me');
       
-      const { latitude, longitude } = response.data;
+      const { gpsLatitude, gpsLongitude } = response.data;
       
       return {
-        latitude,
-        longitude,
+        latitude: gpsLatitude,
+        longitude: gpsLongitude,
         success: true,
       };
     } catch (error: any) {
