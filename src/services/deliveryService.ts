@@ -165,6 +165,9 @@ class DeliveryService {
       }
       
       console.log(`📦 Enviando courierId: ${user.id}`);
+      console.log(`📍 Endpoint: PATCH /deliveries/${deliveryId}/accept`);
+      console.log(`👤 User completo:`, JSON.stringify(user, null, 2));
+      console.log(`🔧 Body da requisição:`, { courierId: user.id });
       
       // Envia o courierId no body da requisição (PATCH)
       const response = await apiClient.patch<DeliveryEntity>(
