@@ -11,8 +11,10 @@ import {
   ScrollView,
   AppState,
   Image,
+  StatusBar as RNStatusBar,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { Ionicons } from "@expo/vector-icons";
 import { unifiedLocationService } from "../services/unifiedLocationService";
 import { notificationService } from "../services/notificationService";
 import { locationService } from "../services/locationService";
@@ -21,6 +23,7 @@ import AvailableRidesScreen from "./delivery/AvailableRidesScreen";
 import ActiveDeliveryScreen from "./delivery/ActiveDeliveryScreen";
 import RideInviteModal from "../components/delivery/RideInviteModal";
 import GradientText from "../components/GradientText";
+import SideMenu from "../components/SideMenu";
 
 interface User {
   id: string;
@@ -51,6 +54,7 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
   const [locationTrackingActive, setLocationTrackingActive] = useState(false);
   const [deliveryPollingActive, setDeliveryPollingActive] = useState(false);
   const [hasActiveDelivery, setHasActiveDelivery] = useState(false);
+  const [showSideMenu, setShowSideMenu] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Verifica se o usuário é entregador
@@ -484,22 +488,30 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
 
-      <View style={styles.header}>
-        <View style={styles.logoContainer}>
-          <View style={styles.logoIcon}>
-            <Image 
-              source={require('../../assets/icon.png')} 
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-          </View>
-          <GradientText style={styles.appName}>Zapi10</GradientText>
-        </View>
-
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutButtonText}>Sair</Text>
+      {/* Header com botão do menu */}
+      <View style={[
+        styles.header,
+        Platform.OS === 'android' && { paddingTop: RNStatusBar.currentHeight || 0 }
+      ]}>
+        <TouchableOpacity
+          style={styles.menuButton}
+          onPress={() => setShowSideMenu(true)}
+        >
+          <Ionicons name="menu" size={28} color="#fff" />
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Zapi10</Text>
+        <View style={styles.menuButton} />
       </View>
+
+      {/* Side Menu */}
+      {user && (
+        <SideMenu
+          visible={showSideMenu}
+          onClose={() => setShowSideMenu(false)}
+          user={user}
+          onLogout={onLogout}
+        />
+      )}
 
       <View style={styles.content}>
         <View style={styles.welcomeCard}>
@@ -513,16 +525,6 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
           <Text style={styles.welcomeSubtitle}>
             📍 Localização: {locationStatus}
           </Text>
-
-          {/* Debug info para desenvolvimento */}
-          {__DEV__ && (
-            <View style={[styles.testButton, { backgroundColor: "#374151" }]}>
-              <Text style={[styles.testButtonText, { fontSize: 12 }]}>
-                Debug: isDelivery={isDelivery ? "true" : "false"}, role=
-                {user?.role}
-              </Text>
-            </View>
-          )}
         </View>
 
         <View style={styles.featuresContainer}>
@@ -1297,6 +1299,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#1a1a2e",
     borderBottomWidth: 1,
     borderBottomColor: "#262640",
+  },
+  menuButton: {
+    width: 40,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#fff",
   },
   logoContainer: {
     flexDirection: "row",

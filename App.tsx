@@ -1,5 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect } from "react";
+import { NavigationContainer } from '@react-navigation/native';
 import AppNavigator from "./src/navigation/AppNavigator";
 import { apiClient } from "./src/services/api";
 
@@ -13,9 +14,9 @@ export default function App() {
   }, []);
 
   return (
-    <>
+    <NavigationContainer>
       <StatusBar style="light" />
       <AppNavigator />
-    </>
+    </NavigationContainer>
   );
 }

@@ -148,6 +148,7 @@ export default function AppNavigator() {
       );
 
     case "authenticated":
+      if (!user) return <LoadingScreen />;
       return <MainApp user={user} onLogout={handleLogout} />;
 
     default:
