@@ -9,8 +9,11 @@ import {
   ScrollView,
   ActivityIndicator,
   Modal,
+  Platform,
+  StatusBar as RNStatusBar,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
 import { deliveryService } from "../../services/deliveryService";
 import { deliveryPollingService, PendingDelivery } from "../../services/deliveryPollingService";
@@ -37,6 +40,7 @@ export default function ActiveDeliveryScreen({
   onBack,
   onComplete,
 }: ActiveDeliveryScreenProps) {
+  const insets = useSafeAreaInsets();
   const [delivery, setDelivery] = useState<PendingDelivery | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -539,7 +543,12 @@ export default function ActiveDeliveryScreen({
       <StatusBar style="light" />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View
+        style={[
+          styles.header,
+          Platform.OS === 'android' && { paddingTop: RNStatusBar.currentHeight || 0 },
+        ]}
+      >
         <TouchableOpacity style={styles.headerBackButton} onPress={onBack}>
           <Text style={styles.headerBackButtonText}>← Voltar</Text>
         </TouchableOpacity>
@@ -550,7 +559,11 @@ export default function ActiveDeliveryScreen({
         </Text>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={{ paddingBottom: Platform.OS === 'android' ? insets.bottom + 20 : 20 }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Status Badge */}
         <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
           <Text style={styles.statusIcon}>{statusInfo.icon}</Text>
@@ -761,7 +774,12 @@ export default function ActiveDeliveryScreen({
           <StatusBar style="light" />
           
           {/* Header do Modal */}
-          <View style={styles.fullscreenHeader}>
+          <View
+            style={[
+              styles.fullscreenHeader,
+              Platform.OS === 'android' && { paddingTop: RNStatusBar.currentHeight || 0 },
+            ]}
+          >
             <TouchableOpacity 
               style={styles.fullscreenCloseButton}
               onPress={() => setFullscreenMap(false)}

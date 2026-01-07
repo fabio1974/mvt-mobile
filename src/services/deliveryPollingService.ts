@@ -169,10 +169,10 @@ class DeliveryPollingService {
     radiusKm?: number
   ): Promise<PendingDelivery[]> {
     try {
-      console.log('🌐 Buscando entregas PENDING (sempre online)...');
+      console.log('🌐 Buscando entregas PENDING (sempre online) via /deliveries/courier/pendings ...');
       
       const params: any = {
-        status: 'PENDING',
+        // Mantemos parâmetros auxiliares para futura filtragem no BE
         size: 50,
         sort: 'createdAt,desc' // Mais recentes primeiro
       };
@@ -182,11 +182,17 @@ class DeliveryPollingService {
         params.longitude = longitude;
         if (radiusKm) params.radius = radiusKm;
       }
+      
+      // Novo endpoint dedicado para pendências por courier
+      const response = await apiClient.get<any>('/deliveries/courier/pendings', { params });
 
-      const response = await apiClient.get<any>('/deliveries', { params });
+      // Aceita tanto paginação (content) quanto lista direta
+      const rawList = Array.isArray(response.data?.content)
+        ? response.data.content
+        : (Array.isArray(response.data) ? response.data : []);
 
-      if (response.data?.content) {
-        const deliveries: PendingDelivery[] = response.data.content.map((d: any) => ({
+      if (rawList && rawList.length > 0) {
+        const deliveries: PendingDelivery[] = rawList.map((d: any) => ({
           ...d,
           id: d.id,
           pickupAddress: d.fromAddress || d.pickupAddress || 'Endereço não informado',
@@ -212,7 +218,7 @@ class DeliveryPollingService {
 
       return [];
     } catch (error: any) {
-      console.error('❌ Erro ao buscar entregas PENDING:', error);
+      console.error('❌ Erro ao buscar entregas PENDING (courier/pendings):', error);
       return [];
     }
   }

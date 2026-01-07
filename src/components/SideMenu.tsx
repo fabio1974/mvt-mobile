@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Dimensions,
   TouchableWithoutFeedback,
 } from 'react-native';
+import { PanResponder } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
@@ -19,15 +20,50 @@ interface SideMenuProps {
   visible: boolean;
   onClose: () => void;
   user: {
+    id: string;
     name: string;
     email: string;
     role?: string;
   };
   onLogout: () => void;
+  onShowBankAccount?: () => void;
 }
 
-export default function SideMenu({ visible, onClose, user, onLogout }: SideMenuProps) {
+export default function SideMenu({ visible, onClose, user, onLogout, onShowBankAccount }: SideMenuProps) {
   const slideAnim = React.useRef(new Animated.Value(-MENU_WIDTH)).current;
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_evt, gestureState) => {
+        // Ativa apenas para movimentos predominantemente horizontais
+        return Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 10;
+      },
+      onPanResponderMove: (_evt, gestureState) => {
+        // Arraste para esquerda (dx negativo) move o menu junto com o dedo
+        if (gestureState.dx < 0) {
+          const translateX = Math.max(-MENU_WIDTH, gestureState.dx);
+          slideAnim.setValue(translateX);
+        }
+      },
+      onPanResponderRelease: (_evt, gestureState) => {
+        // Fecha se velocidade for para esquerda ou se arraste passar 1/3 da largura
+        if (gestureState.vx < -0.5 || gestureState.dx < -MENU_WIDTH / 3) {
+          Animated.timing(slideAnim, {
+            toValue: -MENU_WIDTH,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => onClose());
+        } else {
+          // Volta para aberto
+          Animated.spring(slideAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 65,
+            friction: 11,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   React.useEffect(() => {
     if (visible) {
@@ -59,7 +95,15 @@ export default function SideMenu({ visible, onClose, user, onLogout }: SideMenuP
   const menuItems = [
     { icon: 'person-outline', label: 'Dados do Usuário', onPress: () => console.log('Dados do Usuário') },
     { icon: 'lock-closed-outline', label: 'Mudar Senha', onPress: () => console.log('Mudar Senha') },
-    { icon: 'card-outline', label: 'Dados Bancários', onPress: () => console.log('Dados Bancários') },
+    { 
+      icon: 'card-outline', 
+      label: 'Dados Bancários', 
+      onPress: () => {
+        if (onShowBankAccount) {
+          onShowBankAccount();
+        }
+      }
+    },
     { icon: 'help-circle-outline', label: 'Ajuda e Suporte', onPress: () => console.log('Ajuda') },
     { icon: 'settings-outline', label: 'Configurações', onPress: () => console.log('Configurações') },
   ];
@@ -71,7 +115,7 @@ export default function SideMenu({ visible, onClose, user, onLogout }: SideMenuP
       animationType="none"
       onRequestClose={onClose}
     >
-      <View style={styles.overlay}>
+      <View style={styles.overlay} {...panResponder.panHandlers}>
         <Animated.View
           style={[
             styles.menuContainer,
@@ -79,6 +123,7 @@ export default function SideMenu({ visible, onClose, user, onLogout }: SideMenuP
               transform: [{ translateX: slideAnim }],
             },
           ]}
+          {...panResponder.panHandlers}
         >
           <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
             {/* Header com informações do usuário */}

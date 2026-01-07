@@ -4,10 +4,8 @@
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
 export const ENV = {
-  // API - usa servidor local em DEV, produção em PROD
-  API_URL: __DEV__ 
-    ? 'http://192.168.18.19:8080/api'  // Servidor local
-    : 'https://mvt-events-api.onrender.com/api',  // Produção
+  // API - apontando para produção (Render)
+  API_URL: 'https://mvt-events-api.onrender.com/api',  // Produção
   
   // Google Maps
   GOOGLE_MAPS_API_KEY: 'AIzaSyBpJ-PEX_eQunOFbDXKLC3Xr3q69xoROmU',
@@ -16,7 +14,12 @@ export const ENV = {
   FIREBASE_PROJECT_ID: '',
   FIREBASE_MESSAGING_SENDER_ID: '',
   
-  // App Version
+  // App Version??
+
+
+
+
+
   APP_VERSION: '1.0.0',
   
   // Features Flags

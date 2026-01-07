@@ -22,16 +22,20 @@
         "NSLocationWhenInUseUsageDescription": "Este app precisa acessar sua localização para otimizar as rotas de entrega.",
         "UIBackgroundModes": [
           "location",
+          "background-fetch",
+          "location",
           "background-fetch"
         ]
       },
       "config": {
         "googleMapsApiKey": "AIzaSyBpJ-PEX_eQunOFbDXKLC3Xr3q69xoROmU"
-      }
+      },
+      "bundleIdentifier": "com.mvt.mobile.zapi10"
     },
     "android": {
       "package": "com.mvt.mobile.zapi10",
       "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0f0f23"

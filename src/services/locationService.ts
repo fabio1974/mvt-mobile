@@ -8,7 +8,7 @@ import { userLocationService } from './userLocationService';
 const LOCATION_TASK_NAME = 'background-location-task';
 
 // Configurações de localização
-const LOCATION_UPDATE_INTERVAL = 30000; // 30 segundos
+const LOCATION_UPDATE_INTERVAL = 300000; // 5 minutos
 const LOCATION_ACCURACY = Location.Accuracy.Balanced;
 const LOCATION_DISTANCE_INTERVAL = 10; // metros
 
@@ -47,12 +47,20 @@ class LocationService {
 
   /**
    * Inicializa o serviço de localização
-   * Se estiver no Expo Go, ativa mock automaticamente
+   * Tenta usar GPS real primeiro, mesmo no Expo Go
    */
   async initialize(): Promise<void> {
     if (isRunningInExpoGo()) {
-      console.log('🎭 Detectado Expo Go - ativando mock de localização automaticamente');
-      this.enableMockLocation(undefined, undefined, false);
+      console.log('📱 Detectado Expo Go - tentando usar GPS real...');
+      // Tenta solicitar permissão para GPS real
+      const hasPermission = await this.requestPermissions();
+      if (hasPermission) {
+        console.log('✅ Permissão de GPS concedida - usando localização REAL no Expo Go');
+        this.useMockLocation = false;
+      } else {
+        console.log('⚠️ Sem permissão de GPS - ativando mock como fallback');
+        this.enableMockLocation(undefined, undefined, false);
+      }
     } else {
       console.log('📱 Detectado app standalone - usando localização real');
     }
@@ -312,6 +320,14 @@ class LocationService {
    * Inicia tracking em foreground (quando app está aberto)
    */
   private async startForegroundTracking(): Promise<void> {
+    // Faz a primeira atualização imediatamente
+    console.log('📍 Fazendo primeira atualização de localização...');
+    const initialLocation = await this.getCurrentLocation();
+    if (initialLocation) {
+      await this.updateUserLocation(initialLocation, true); // force update
+      console.log('✅ Primeira localização enviada ao servidor');
+    }
+    
     // Implementação de foreground tracking com setInterval
     setInterval(async () => {
       if (this.isTracking) {

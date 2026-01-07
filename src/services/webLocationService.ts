@@ -20,7 +20,7 @@ interface LocationUpdateResponse {
 class WebLocationService {
   private isTracking = false;
   private lastUpdate = 0;
-  private updateInterval = 30000; // 30 segundos
+  private updateInterval = 300000; // 5 minutos
   private watchId: number | null = null;
   private intervalId: NodeJS.Timeout | null = null;
 
@@ -164,7 +164,7 @@ class WebLocationService {
       {
         enableHighAccuracy: true,
         timeout: 15000,
-        maximumAge: 30000, // 30 segundos
+        maximumAge: 300000, // 5 minutos
       }
     );
 

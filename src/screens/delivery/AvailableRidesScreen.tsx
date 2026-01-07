@@ -9,8 +9,11 @@ import {
   Alert,
   SafeAreaView,
   ActivityIndicator,
+  Platform,
+  StatusBar as RNStatusBar,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { deliveryService } from "../../services/deliveryService";
 import { deliveryPollingService } from "../../services/deliveryPollingService";
 import { unifiedLocationService } from "../../services/unifiedLocationService";
@@ -43,6 +46,7 @@ export default function AvailableRidesScreen({
   onRideSelect,
   onBack,
 }: AvailableRidesScreenProps) {
+  const insets = useSafeAreaInsets();
   const [deliveries, setDeliveries] = useState<DeliveryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -469,7 +473,10 @@ export default function AvailableRidesScreen({
       <StatusBar style="light" />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[
+        styles.header,
+        Platform.OS === 'android' && { paddingTop: RNStatusBar.currentHeight || 0 }
+      ]}>
         <TouchableOpacity style={styles.backButton} onPress={onBack}>
           <Text style={styles.backButtonText}>← Voltar</Text>
         </TouchableOpacity>
@@ -535,7 +542,7 @@ export default function AvailableRidesScreen({
             tintColor="#e94560"
           />
         }
-        contentContainerStyle={styles.listContainer}
+        contentContainerStyle={[styles.listContainer, Platform.OS === 'android' && { paddingBottom: insets.bottom + 20 }]}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>

@@ -454,25 +454,30 @@ class DeliveryService {
    */
   async getMyActiveDeliveries(): Promise<DeliveryResponse> {
     try {
-      console.log('🚚 Buscando minhas entregas ativas (ACCEPTED, PICKED_UP, IN_TRANSIT)...');
-      
-      const response = await apiClient.get<DeliveryListResponse>('/deliveries', {
+      console.log('🚚 Buscando minhas entregas ativas via /deliveries/courier/active ...');
+
+      // Novo endpoint dedicado para entregas ativas do courier
+      const response = await apiClient.get<any>('/deliveries/courier/active', {
         params: {
-          courierFilter: 'mine', // Filtra pelo motoboy logado
-          status: 'ACCEPTED,PICKED_UP,IN_TRANSIT',
+          // Mantemos ordenação e paginação quando suportado
           sort: 'acceptedAt,desc',
-          size: 50
+          size: 50,
         }
       });
-      
-      console.log(`✅ ${response.data.content.length} entregas ativas encontradas`);
-      
+
+      // Suporta resposta paginada (content) ou lista direta
+      const rawList = Array.isArray(response.data?.content)
+        ? response.data.content
+        : (Array.isArray(response.data) ? response.data : []);
+
+      console.log(`✅ ${rawList.length} entregas ativas encontradas`);
+
       return {
         success: true,
-        data: response.data.content
+        data: rawList,
       };
     } catch (error: any) {
-      console.error('❌ Erro ao buscar entregas ativas:', error);
+      console.error('❌ Erro ao buscar entregas ativas (courier/active):', error);
       return {
         success: false,
         error: error.response?.data?.message || 'Erro ao buscar entregas ativas'

@@ -108,4 +108,4 @@ self.addEventListener("activate", function (event) {
 // Log periódico para confirmar que SW está vivo
 setInterval(() => {
   console.log("💓 [SW] Service Worker está vivo e ouvindo...");
-}, 30000); // A cada 30 segundos
+}, 300000); // A cada 5 minutos

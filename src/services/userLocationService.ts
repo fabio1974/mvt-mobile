@@ -4,7 +4,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 interface UserLocationUpdate {
   gpsLatitude: number;
   gpsLongitude: number;
-  updatedAt?: string;
 }
 
 interface LocationResponse {
@@ -44,7 +43,6 @@ class UserLocationService {
       const updateData: UserLocationUpdate = {
         gpsLatitude: latitude,
         gpsLongitude: longitude,
-        updatedAt: new Date().toISOString(),
       };
 
       console.log(`📍 Atualizando localização do usuário ${userId}:`, updateData);
@@ -80,7 +78,6 @@ class UserLocationService {
       const updateData: UserLocationUpdate = {
         gpsLatitude: latitude,
         gpsLongitude: longitude,
-        updatedAt: new Date().toISOString(),
       };
 
       console.log(`📍 Atualizando localização do usuário ${userId} (admin):`, updateData);
@@ -109,9 +106,44 @@ class UserLocationService {
    */
   async getCurrentUserLocation(): Promise<{ latitude?: number; longitude?: number; success: boolean }> {
     try {
-      const response = await apiClient.get('/users/me');
+      // Obtém dados do usuário logado para pegar o ID
+      const userData = await AsyncStorage.getItem('user');
+      if (!userData) {
+        console.warn('⚠️ Dados do usuário não encontrados no AsyncStorage');
+        return {
+          success: false,
+        };
+      }
+
+      const user = JSON.parse(userData);
+      const userId = user.id || user.userId;
+
+      if (!userId) {
+        console.warn('⚠️ ID do usuário não encontrado');
+        return {
+          success: false,
+        };
+      }
+
+      console.log(`🔍 Buscando localização do usuário ID: ${userId}`);
+
+      // Usa o endpoint passando o ID do usuário
+      const response = await apiClient.get(`/users/${userId}`);
       
-      const { gpsLatitude, gpsLongitude } = response.data;
+      console.log('📍 Resposta do servidor:', response.data);
+      
+      // Extrai as coordenadas da resposta
+      const gpsLatitude = response.data.gpsLatitude;
+      const gpsLongitude = response.data.gpsLongitude;
+      
+      if (!gpsLatitude || !gpsLongitude) {
+        console.warn('⚠️ Coordenadas não encontradas na resposta:', response.data);
+        return {
+          success: false,
+        };
+      }
+      
+      console.log(`✅ Localização obtida: ${gpsLatitude}, ${gpsLongitude}`);
       
       return {
         latitude: gpsLatitude,
@@ -120,6 +152,7 @@ class UserLocationService {
       };
     } catch (error: any) {
       console.error('❌ Erro ao obter localização do usuário:', error);
+      console.error('Error response:', error.response?.data);
       
       return {
         success: false,

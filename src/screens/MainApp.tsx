@@ -12,18 +12,26 @@ import {
   AppState,
   Image,
   StatusBar as RNStatusBar,
+  ActivityIndicator,
+  Dimensions,
 } from "react-native";
+import { PanResponder } from 'react-native';
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { unifiedLocationService } from "../services/unifiedLocationService";
 import { notificationService } from "../services/notificationService";
 import { locationService } from "../services/locationService";
 import { deliveryPollingService } from "../services/deliveryPollingService";
+import { userLocationService } from "../services/userLocationService";
 import AvailableRidesScreen from "./delivery/AvailableRidesScreen";
 import ActiveDeliveryScreen from "./delivery/ActiveDeliveryScreen";
+import BankAccountScreen from "./BankAccountScreen";
 import RideInviteModal from "../components/delivery/RideInviteModal";
 import GradientText from "../components/GradientText";
 import SideMenu from "../components/SideMenu";
+import ENV from "../config/env";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface User {
   id: string;
@@ -38,9 +46,10 @@ interface MainAppProps {
   onLogout: () => void;
 }
 
-type Screen = "dashboard" | "available-rides" | "active-ride";
+type Screen = "dashboard" | "available-rides" | "active-ride" | "bank-account";
 
 export default function MainApp({ user, onLogout }: MainAppProps) {
+  const insets = useSafeAreaInsets();
   const [locationStatus, setLocationStatus] = useState<string>("Parado ⏸️");
   const [currentScreen, setCurrentScreen] = useState<Screen>("dashboard");
   const [activeDeliveryId, setActiveDeliveryId] = useState<string | null>(null);
@@ -55,7 +64,53 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
   const [deliveryPollingActive, setDeliveryPollingActive] = useState(false);
   const [hasActiveDelivery, setHasActiveDelivery] = useState(false);
   const [showSideMenu, setShowSideMenu] = useState(false);
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [userLocation, setUserLocation] = useState<{latitude: number; longitude: number} | null>(null);
+  const [loadingLocation, setLoadingLocation] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const mapRef = useRef<MapView>(null);
+  const locationInitializedRef = useRef(false);
+  const edgeOpenResponder = React.useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Só começa se o toque iniciar próximo à borda esquerda e movimento horizontal para direita
+        const startX = evt.nativeEvent.pageX;
+        return startX <= 24 && gestureState.dx > 10 && Math.abs(gestureState.dy) < 10;
+      },
+      onPanResponderMove: () => {},
+      onPanResponderRelease: (_evt, gestureState) => {
+        if (gestureState.dx > 30) {
+          setShowSideMenu(true);
+        }
+      },
+    })
+  ).current;
+
+  // Função para abrir o modal com localização do usuário
+  const handleOpenLocationModal = async () => {
+    setShowLocationModal(true);
+    setLoadingLocation(true);
+    
+    try {
+      const result = await userLocationService.getCurrentUserLocation();
+      
+      if (result.success && result.latitude && result.longitude) {
+        setUserLocation({
+          latitude: result.latitude,
+          longitude: result.longitude
+        });
+        console.log('📍 Localização do usuário carregada:', result.latitude, result.longitude);
+      } else {
+        console.log('⚠️ Sem localização salva no banco');
+        Alert.alert('Aviso', 'Localização não disponível no servidor.');
+      }
+    } catch (error) {
+      console.error('❌ Erro ao buscar localização:', error);
+      Alert.alert('Erro', 'Não foi possível carregar a localização.');
+    } finally {
+      setLoadingLocation(false);
+    }
+  };
 
   // Verifica se o usuário é entregador
   const userRole = user?.role?.toUpperCase() || "";
@@ -98,55 +153,14 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
       }
     };
 
-    // 🔧 CORREÇÃO TEMPORÁRIA: Sincroniza entrega 22 com o backend
-    const syncDelivery22 = async () => {
-      try {
-        console.log('🔄 ========== SINCRONIZANDO ENTREGA 22 ==========');
-        
-        // Primeiro, remove duplicatas
-        await cleanupDuplicates();
-        
-        // Primeiro, verifica o que está no storage local
-        const allDeliveries = await deliveryPollingService.loadAllDeliveriesFromStorage();
-        const local22 = allDeliveries.find((d: any) => d.id === '22' || d.id === 22);
-        console.log('📦 Entrega 22 no storage LOCAL:', local22 ? `Status: ${local22.status}` : 'NÃO ENCONTRADA');
-        
-        // Busca delivery do backend
-        const { deliveryService } = require('../services/deliveryService');
-        console.log('🌐 Buscando entrega 22 do BACKEND...');
-        const response = await deliveryService.getDeliveryById('22');
-        
-        if (response.success && response.data) {
-          console.log('✅ Entrega 22 no BACKEND:', {
-            status: response.data.status,
-            acceptedAt: response.data.acceptedAt,
-            pickedUpAt: response.data.pickedUpAt
-          });
-          
-          // Força atualização no storage com dados do backend
-          await deliveryPollingService.updateDeliveryInStorage('22', response.data);
-          
-          // Verifica se atualizou
-          const updatedDeliveries = await deliveryPollingService.loadAllDeliveriesFromStorage();
-          const updated22 = updatedDeliveries.find((d: any) => d.id === '22' || d.id === 22);
-          console.log('✅ Entrega 22 APÓS UPDATE:', updated22 ? `Status: ${updated22.status}` : 'NÃO ENCONTRADA');
-          
-          console.log('🔄 ========== SINCRONIZAÇÃO COMPLETA ==========');
-        } else {
-          console.log('⚠️ Entrega 22 não encontrada no backend:', response.error);
-        }
-      } catch (error) {
-        console.error('❌ Erro ao sincronizar entrega 22:', error);
-      }
-    };
-    
-    // Executa com um pequeno delay para garantir que o storage está pronto
-    setTimeout(() => {
-      syncDelivery22();
-    }, 1000);
+    // Executa limpeza de duplicatas ao montar
+    cleanupDuplicates();
 
-    // NÃO inicia tracking automaticamente - usuário controla via toggle
-    // startLocationTracking();
+    // Inicia tracking de localização automaticamente para entregadores
+    if (isDelivery) {
+      console.log('🚀 Iniciando tracking de localização para entregador...');
+      startLocationTracking();
+    }
 
     // Sincroniza estado do mock com o serviço
     const isMockEnabled = locationService.isMockLocationEnabled();
@@ -235,6 +249,13 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
 
   const startLocationTracking = async () => {
     try {
+      // Evita inicializar múltiplas vezes
+      if (locationInitializedRef.current) {
+        console.log('⚠️ Localização já foi inicializada, pulando...');
+        return;
+      }
+      locationInitializedRef.current = true;
+
       setLocationStatus("Iniciando...");
 
       // Verifica disponibilidade do serviço
@@ -434,6 +455,11 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     setHasActiveDelivery(hasAccepted);
   };
 
+  const handleShowBankAccount = () => {
+    setCurrentScreen("bank-account");
+    setShowSideMenu(false);
+  };
+
   // Componente de modal global (sempre renderizado)
   const GlobalModals = () => (
     <>
@@ -447,6 +473,77 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
         onClose={handleRideInviteClose}
         autoCloseTimer={30}
       />
+      
+      {/* Modal de localização do usuário */}
+      <Modal
+        visible={showLocationModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowLocationModal(false)}
+      >
+        <View style={styles.locationModalOverlay}>
+          <View style={styles.locationModalContent}>
+            <View style={styles.locationModalHeader}>
+              <Text style={styles.locationModalTitle}>📍 Sua Localização</Text>
+              <TouchableOpacity
+                onPress={() => setShowLocationModal(false)}
+                style={styles.locationModalCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            
+            {loadingLocation ? (
+              <View style={styles.locationModalLoading}>
+                <ActivityIndicator size="large" color="#7c3aed" />
+                <Text style={styles.locationModalLoadingText}>Carregando localização...</Text>
+              </View>
+            ) : userLocation ? (
+              <View style={styles.locationModalMapContainer}>
+                <MapView
+                  ref={mapRef}
+                  style={styles.locationModalMap}
+                  provider={PROVIDER_GOOGLE}
+                  initialRegion={{
+                    latitude: userLocation.latitude,
+                    longitude: userLocation.longitude,
+                    latitudeDelta: 0.01,
+                    longitudeDelta: 0.01,
+                  }}
+                >
+                  <Marker
+                    coordinate={{
+                      latitude: userLocation.latitude,
+                      longitude: userLocation.longitude,
+                    }}
+                    title={user?.name || "Você"}
+                    description="Sua localização atual"
+                  >
+                    <View style={styles.locationMarker}>
+                      <View style={styles.locationMarkerDot} />
+                    </View>
+                  </Marker>
+                </MapView>
+                <View style={styles.locationModalCoords}>
+                  <Text style={styles.locationModalCoordsText}>
+                    Lat: {userLocation.latitude.toFixed(6)}
+                  </Text>
+                  <Text style={styles.locationModalCoordsText}>
+                    Lng: {userLocation.longitude.toFixed(6)}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.locationModalNoData}>
+                <Ionicons name="location-outline" size={48} color="#ccc" />
+                <Text style={styles.locationModalNoDataText}>
+                  Localização não disponível
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </>
   );
 
@@ -458,6 +555,20 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
         <AvailableRidesScreen
           onRideSelect={handleRideSelect}
           onBack={handleBackToDashboard}
+        />
+        <GlobalModals />
+      </>
+    );
+  }
+
+  if (currentScreen === "bank-account") {
+    console.log("🏦 Renderizando BankAccountScreen");
+    return (
+      <>
+        <BankAccountScreen
+          userId={user?.id || ""}
+          onBack={handleBackToDashboard}
+          onMenuOpen={() => setShowSideMenu(true)}
         />
         <GlobalModals />
       </>
@@ -487,6 +598,8 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
+      {/* Área de gesto para abrir menu pela borda esquerda */}
+      <View style={styles.edgeSwipeArea} {...edgeOpenResponder.panHandlers} />
 
       {/* Header com botão do menu */}
       <View style={[
@@ -510,6 +623,7 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
           onClose={() => setShowSideMenu(false)}
           user={user}
           onLogout={onLogout}
+          onShowBankAccount={handleShowBankAccount}
         />
       )}
 
@@ -522,9 +636,12 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
           <Text style={styles.welcomeSubtitle}>
             Perfil: {user?.role?.toUpperCase() === "COURIER" ? "Motoboy" : user?.role}
           </Text>
-          <Text style={styles.welcomeSubtitle}>
-            📍 Localização: {locationStatus}
-          </Text>
+          <TouchableOpacity onPress={handleOpenLocationModal} style={styles.locationRow}>
+            <Text style={styles.welcomeSubtitle}>
+              📍 Localização: {locationStatus}
+            </Text>
+            <Ionicons name="map-outline" size={20} color="#7c3aed" style={styles.mapIcon} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.featuresContainer}>
@@ -650,7 +767,7 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
         </View>
       </View>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, Platform.OS === 'android' && { paddingBottom: insets.bottom + 16 }]}>
         <Text style={styles.footerText}>
           Versão 1.0.0 • Sistema autenticado ✅
           {isDelivery && " • Modo Entregador 🚚"}
@@ -671,7 +788,10 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
       {/* Botão flutuante para abrir menu de testes */}
       {__DEV__ && (
         <TouchableOpacity
-          style={styles.fabButton}
+          style={[
+            styles.fabButton,
+            Platform.OS === 'android' && { bottom: insets.bottom + 32 },
+          ]}
           onPress={() => setShowTestMenu(true)}
         >
           <Text style={styles.fabIcon}>🧪</Text>
@@ -698,116 +818,6 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
             </View>
 
             <ScrollView style={styles.modalContent}>
-              {/* Testes Gerais */}
-              <Text style={styles.sectionTitle}>📍 Localização</Text>
-              
-              {/* Toggle GPS Real vs Mock */}
-              <TouchableOpacity
-                style={[
-                  styles.menuTestButton,
-                  { backgroundColor: useRealGPS ? "#10b981" : "#f59e0b" }
-                ]}
-                onPress={async () => {
-                  const newState = !useRealGPS;
-                  setUseRealGPS(newState);
-                  
-                  if (newState) {
-                    // Ativar GPS real
-                    console.log('📡 Ativando GPS REAL do dispositivo...');
-                    locationService.disableMockLocation();
-                    setMockLocationEnabled(false);
-                    setMockMovementEnabled(false);
-                    
-                    // Solicita permissões (forçando a solicitação)
-                    const hasPermission = await locationService.requestPermissions(true);
-                    if (!hasPermission) {
-                      Alert.alert(
-                        "⚠️ Permissões Necessárias",
-                        "Para usar GPS real, você precisa conceder permissões de localização.\n\nVá em Configurações > Expo Go > Localização e ative."
-                      );
-                      // Volta para mock se não conseguir permissões
-                      locationService.enableMockLocation(undefined, undefined, false);
-                      setMockLocationEnabled(true);
-                      setUseRealGPS(false);
-                      return;
-                    }
-                    
-                    Alert.alert("📡 GPS Real Ativado", "Usando localização real do dispositivo");
-                  } else {
-                    // Voltar para mock
-                    console.log('🎭 Voltando para MOCK (Ubajara-CE)...');
-                    locationService.enableMockLocation(undefined, undefined, false);
-                    setMockLocationEnabled(true);
-                    setMockMovementEnabled(false);
-                    Alert.alert("🎭 Mock Ativado", "Usando localização simulada (Ubajara-CE)");
-                  }
-                }}
-              >
-                <Text style={styles.menuTestButtonText}>
-                  {useRealGPS ? "📡 Usando GPS Real" : "🎭 Usando Mock (Ubajara-CE)"}
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={styles.menuTestButton}
-                onPress={() => {
-                  unifiedLocationService.testGeolocation();
-                  setShowTestMenu(false);
-                }}
-              >
-                <Text style={styles.menuTestButtonText}>🧪 Testar Localização</Text>
-              </TouchableOpacity>
-
-              {/* Toggle de Tracking de Localização */}
-              <TouchableOpacity
-                style={[
-                  styles.menuTestButton,
-                  { backgroundColor: locationTrackingActive ? "#10b981" : "#ef4444" }
-                ]}
-                onPress={() => {
-                  const newState = !locationTrackingActive;
-                  setLocationTrackingActive(newState);
-                  
-                  if (newState) {
-                    unifiedLocationService.startTracking();
-                    Alert.alert("✅ Tracking Ativado", "Localização será enviada ao backend");
-                  } else {
-                    unifiedLocationService.stopTracking();
-                    Alert.alert("⏸️ Tracking Pausado", "Localização NÃO será enviada");
-                  }
-                }}
-              >
-                <Text style={styles.menuTestButtonText}>
-                  {locationTrackingActive ? "⏸️ Pausar Tracking" : "▶️ Ativar Tracking"}
-                </Text>
-              </TouchableOpacity>
-
-              {/* Controle de Movimento (apenas quando mock está ativo) */}
-              {mockLocationEnabled && !useRealGPS && (
-                <TouchableOpacity
-                  style={[
-                    styles.menuTestButton,
-                    { backgroundColor: mockMovementEnabled ? "#f59e0b" : "#10b981" }
-                  ]}
-                  onPress={() => {
-                    const newMovementState = !mockMovementEnabled;
-                    // Reativa o mock com o novo estado de movimento
-                    locationService.enableMockLocation(undefined, undefined, newMovementState);
-                    setMockMovementEnabled(newMovementState);
-                    Alert.alert(
-                      newMovementState ? "🏍️ Movimento Ativado" : "🛑 Movimento Pausado",
-                      newMovementState 
-                        ? "Motoboy se deslocando pela cidade (0-50m)" 
-                        : "Motoboy parado (apenas GPS drift)"
-                    );
-                  }}
-                >
-                  <Text style={styles.menuTestButtonText}>
-                    {mockMovementEnabled ? "🛑 Pausar Movimento" : "🏍️ Simular Movimento"}
-                  </Text>
-                </TouchableOpacity>
-              )}
-
               {/* Testes específicos para entregadores */}
               {isDelivery && (
                 <>
@@ -1048,26 +1058,6 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.menuTestButton, { backgroundColor: "#ef4444" }]}
-                    onPress={async () => {
-                      try {
-                        console.log("🗑️ Removendo entrega #23 do storage local...");
-                        await deliveryPollingService.removeDeliveryFromStorage(23);
-                        Alert.alert(
-                          "✅ Entrega Removida",
-                          "Entrega #23 foi removida do storage local.\n\nAtualize a lista para ver as mudanças."
-                        );
-                        setShowTestMenu(false);
-                      } catch (error) {
-                        console.error("Erro ao remover entrega:", error);
-                        Alert.alert("❌ Erro", `${error}`);
-                      }
-                    }}
-                  >
-                    <Text style={styles.menuTestButtonText}>🗑️ Remover Entrega #23</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
                     style={[styles.menuTestButton, { backgroundColor: "#dc2626" }]}
                     onPress={async () => {
                       Alert.alert(
@@ -1281,6 +1271,8 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
           </View>
         </View>
       </Modal>
+
+      <GlobalModals />
     </SafeAreaView>
   );
 }
@@ -1334,6 +1326,14 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "bold",
     color: "#ffffff",
+  },
+  edgeSwipeArea: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 24,
+    zIndex: 1,
   },
   logoutButton: {
     backgroundColor: "#ef4444",
@@ -1518,5 +1518,95 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
     borderColor: "rgba(251, 191, 36, 0.3)",
+  },
+  // Estilos para a linha de localização clicável
+  locationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  mapIcon: {
+    marginLeft: 8,
+  },
+  // Estilos para o modal de localização
+  locationModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  locationModalContent: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    width: "100%",
+    maxHeight: "80%",
+    overflow: "hidden",
+  },
+  locationModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  locationModalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  locationModalCloseButton: {
+    padding: 4,
+  },
+  locationModalLoading: {
+    padding: 40,
+    alignItems: "center",
+  },
+  locationModalLoadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: "#666",
+  },
+  locationModalMapContainer: {
+    height: 350,
+  },
+  locationModalMap: {
+    flex: 1,
+  },
+  locationModalCoords: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    padding: 12,
+    backgroundColor: "#f5f5f5",
+  },
+  locationModalCoordsText: {
+    fontSize: 12,
+    color: "#666",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  locationModalNoData: {
+    padding: 40,
+    alignItems: "center",
+  },
+  locationModalNoDataText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: "#999",
+  },
+  locationMarker: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(124, 58, 237, 0.3)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  locationMarkerDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#7c3aed",
+    borderWidth: 2,
+    borderColor: "#fff",
   },
 });

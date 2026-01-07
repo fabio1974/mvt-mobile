@@ -1,5 +1,7 @@
 import { apiClient } from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ErrorLogger } from '../utils/errorLogger';
+// import { crashlyticsService } from './crashlyticsService'; // Desabilitado para Expo Go
 
 /**
  * Serviço de autenticação mock/desenvolvimento
@@ -176,6 +178,9 @@ export class AuthService {
       await AsyncStorage.setItem('user', JSON.stringify(mappedUser));
       await apiClient.setAuthToken(token);
 
+      // Define usuário no Crashlytics (desabilitado para Expo Go)
+      // crashlyticsService.setUser(mappedUser.id, mappedUser.email, mappedUser.name);
+
       return {
         success: true,
         token,
@@ -186,6 +191,10 @@ export class AuthService {
       console.error('❌ Status:', error.response?.status);
       console.error('❌ Data:', error.response?.data);
       console.error('❌ Message:', error.message);
+      
+      // Registra erro no Crashlytics (desabilitado para Expo Go)
+      // crashlyticsService.recordError(error, `Login failed for email: ${email}`);
+      // crashlyticsService.setAttribute('login_email', email);
       
       // Se der erro de rede, vamos tentar o mock como fallback
       if (error.code === 'ECONNABORTED' || error.code === 'ENOTFOUND' || error.message.includes('Network Error')) {
