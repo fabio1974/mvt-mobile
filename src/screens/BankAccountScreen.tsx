@@ -17,21 +17,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { bankAccountService, BankAccount } from '../services/bankAccountService';
+import { banksService, Bank } from '../services/banksService';
 
 interface BankAccountScreenProps {
   userId: string;
   onBack: () => void;
   onMenuOpen?: () => void;
 }
-
-const BANK_CODES = [
-  { code: '001', name: 'Banco do Brasil' },
-  { code: '033', name: 'Santander' },
-  { code: '104', name: 'Caixa Econômica Federal' },
-  { code: '237', name: 'Bradesco' },
-  { code: '341', name: 'Itaú' },
-  { code: '422', name: 'Banco Safra' },
-];
 
 const ACCOUNT_TYPES = [
   { label: 'Conta Corrente', value: 'CHECKING' },
@@ -65,7 +57,9 @@ export default function BankAccountScreen({
     })
   ).current;
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingAccount, setSavingAccount] = useState(false);
+  const [loadingBanks, setLoadingBanks] = useState(false);
+  const [banks, setBanks] = useState<Bank[]>([]);
   const [account, setAccount] = useState<BankAccount>({
     bankCode: '001',
     agency: '',
@@ -81,11 +75,42 @@ export default function BankAccountScreen({
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
 
   useEffect(() => {
-    loadBankAccount();
+    loadBanksAndAccount();
   }, []);
 
-  const loadBankAccount = async () => {
+  const loadBanksAndAccount = async () => {
     setLoading(true);
+    try {
+      // Carrega bancos
+      await loadBanks();
+      // Carrega conta
+      await loadBankAccount();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadBanks = async () => {
+    setLoadingBanks(true);
+    try {
+      const response = await banksService.getBanks();
+      if (response.success && response.data.length > 0) {
+        setBanks(response.data);
+        console.log(`✅ ${response.data.length} bancos carregados`);
+      } else {
+        console.error('❌ Erro ao carregar bancos:', response.error);
+        Alert.alert('Aviso', 'Não foi possível carregar a lista de bancos');
+      }
+    } catch (error) {
+      console.error('❌ Erro ao buscar bancos:', error);
+      Alert.alert('Erro', 'Erro ao carregar bancos');
+    } finally {
+      setLoadingBanks(false);
+    }
+  };
+
+
+  const loadBankAccount = async () => {
     try {
       const response = await bankAccountService.getUserBankAccounts(userId);
 
@@ -110,8 +135,6 @@ export default function BankAccountScreen({
     } catch (error) {
       console.error('❌ Erro ao carregar conta bancária:', error);
       Alert.alert('Erro', 'Não foi possível carregar os dados bancários');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -121,7 +144,7 @@ export default function BankAccountScreen({
       return;
     }
 
-    setSaving(true);
+    setSavingAccount(true);
     try {
       const payload = {
         ...account,
@@ -155,11 +178,11 @@ export default function BankAccountScreen({
       console.error('❌ Erro ao salvar conta bancária:', error);
       Alert.alert('Erro', 'Erro de conexão ao salvar');
     } finally {
-      setSaving(false);
+      setSavingAccount(false);
     }
   };
 
-  const selectedBankName = BANK_CODES.find(
+  const selectedBankName = banks.find(
     b => b.code === account.bankCode
   )?.name || 'Selecionar Banco';
 
@@ -224,25 +247,36 @@ export default function BankAccountScreen({
 
             {showBankDropdown && (
               <View style={styles.dropdownMenu}>
-                {BANK_CODES.map(bank => (
-                  <TouchableOpacity
-                    key={bank.code}
-                    style={styles.dropdownItem}
-                    onPress={() => {
-                      setAccount({ ...account, bankCode: bank.code });
-                      setShowBankDropdown(false);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.dropdownItemText,
-                        account.bankCode === bank.code && styles.dropdownItemSelected,
-                      ]}
+                {loadingBanks ? (
+                  <View style={styles.dropdownLoading}>
+                    <ActivityIndicator size="small" color="#7c3aed" />
+                    <Text style={styles.dropdownLoadingText}>Carregando bancos...</Text>
+                  </View>
+                ) : banks.length > 0 ? (
+                  banks.map(bank => (
+                    <TouchableOpacity
+                      key={bank.code}
+                      style={styles.dropdownItem}
+                      onPress={() => {
+                        setAccount({ ...account, bankCode: bank.code });
+                        setShowBankDropdown(false);
+                      }}
                     >
-                      {bank.code} - {bank.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                      <Text
+                        style={[
+                          styles.dropdownItemText,
+                          account.bankCode === bank.code && styles.dropdownItemSelected,
+                        ]}
+                      >
+                        {bank.code} - {bank.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))
+                ) : (
+                  <View style={styles.dropdownEmpty}>
+                    <Text style={styles.dropdownEmptyText}>Nenhum banco disponível</Text>
+                  </View>
+                )}
               </View>
             )}
           </View>
@@ -424,17 +458,17 @@ export default function BankAccountScreen({
         <TouchableOpacity
           style={styles.cancelButton}
           onPress={onBack}
-          disabled={saving}
+          disabled={savingAccount}
         >
           <Text style={styles.cancelButtonText}>Cancelar</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.saveButton, saving && { opacity: 0.6 }]}
+          style={[styles.saveButton, savingAccount && { opacity: 0.6 }]}
           onPress={handleSave}
-          disabled={saving}
+          disabled={savingAccount}
         >
-          {saving ? (
+          {savingAccount ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
             <Text style={styles.saveButtonText}>Salvar</Text>
@@ -552,6 +586,25 @@ const styles = StyleSheet.create({
   dropdownItemSelected: {
     color: '#7c3aed',
     fontWeight: '600',
+  },
+  dropdownLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  dropdownLoadingText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  dropdownEmpty: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  dropdownEmptyText: {
+    fontSize: 14,
+    color: '#999',
   },
   checkboxSection: {
     flexDirection: 'row',
