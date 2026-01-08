@@ -2,6 +2,7 @@ import { apiClient } from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ErrorLogger } from '../utils/errorLogger';
 import { deliveryPollingService } from './deliveryPollingService';
+import { bankAccountService } from './bankAccountService';
 // import { crashlyticsService } from './crashlyticsService'; // Desabilitado para Expo Go
 
 interface User {
@@ -26,6 +27,8 @@ export class AuthService {
   
   async login(email: string, password: string): Promise<AuthResponse> {
     console.log('🔐 AuthService.login - Tentando login com:', { email });
+    
+    try {
       console.log('📡 Fazendo chamada para API real...');
 
       
@@ -69,6 +72,13 @@ export class AuthService {
       
       // Limpa cache de entregas para evitar vazamento de dados entre contas
       await deliveryPollingService.clearAllDeliveryCaches();
+
+      // Atualiza flag local de conta bancária ativa (não bloqueia login se falhar)
+      try {
+        await bankAccountService.refreshHasActiveBankAccount(mappedUser.id);
+      } catch (err) {
+        console.warn('⚠️ Não foi possível atualizar flag de conta bancária ativa no login:', err);
+      }
 
       // Define usuário no Crashlytics (desabilitado para Expo Go)
       // crashlyticsService.setUser(mappedUser.id, mappedUser.email, mappedUser.name);
@@ -118,20 +128,15 @@ export class AuthService {
   async logout() {
     console.log('🌐 Logout na API Real');
     const response = await apiClient.post('/auth/logout');
+    // Limpa flag local de conta bancária ativa
+    await bankAccountService.clearHasActiveBankAccount();
     return response.data;
-  }
-  
-  /**
-   * Retorna se está usando mock
-   */
-  isUsingMock(): boolean {
-    return this.useMock;
   }
   
   /**
    * Retorna o usuário logado do AsyncStorage
    */
-  async getCurrentUser(): Promise<MockUser | null> {
+  async getCurrentUser(): Promise<User | null> {
     try {
       const userJson = await AsyncStorage.getItem('user');
       if (userJson) {

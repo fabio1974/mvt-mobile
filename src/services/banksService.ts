@@ -50,7 +50,7 @@ class BanksService {
 
       // Cache expirou ou foi forçado refresh - busca do servidor
       console.log('🌐 Buscando bancos do servidor...');
-      const response = await apiClient.get('/api/banks');
+      const response = await apiClient.get('/banks');
 
       if (Array.isArray(response.data)) {
         this.banksCache = response.data;

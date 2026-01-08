@@ -36,6 +36,7 @@ interface PendingDeliveriesResponse {
 
 class DeliveryPollingService {
   private onNewDeliveryCallback: ((delivery: PendingDelivery) => void | Promise<void>) | null = null;
+  private cachedDeliveries: Map<string, PendingDelivery> = new Map();
   private rejectedDeliveryIds: Set<string> = new Set();
   private readonly STORAGE_KEY_REJECTED = 'rejected_deliveries';
   private readonly STORAGE_KEY_ACTIVE_CACHE = 'my_active_deliveries_cache';
@@ -287,22 +288,11 @@ class DeliveryPollingService {
   }
 
   /**
-   * Busca entregas COMPLETADAS do motoboy (com cache 30min)
+   * Busca entregas COMPLETADAS do motoboy (SEM cache - sempre atualizado)
    */
   async getMyCompletedDeliveries(forceRefresh = false): Promise<PendingDelivery[]> {
-    const CACHE_KEY = this.STORAGE_KEY_COMPLETED_CACHE;
-
-    if (!forceRefresh) {
-      const cached = await this.loadDeliveriesFromCache(CACHE_KEY);
-      if (cached) {
-        console.log(`📦 Cache de entregas completadas usado: ${cached.length} entregas`);
-        console.log(`📋 IDs das entregas em cache:`, cached.map(d => d.id).join(', '));
-        return cached;
-      }
-    }
-
     try {
-      console.log('🌐 Buscando entregas completadas do backend (filtrado por courier)...');
+      console.log('🌐 Buscando entregas completadas do backend (sem cache)...');
       const { deliveryService } = await import('./deliveryService');
       const response = await deliveryService.getMyCompletedDeliveries();
       
@@ -323,8 +313,6 @@ class DeliveryPollingService {
           status: d.status,
         }));
 
-        await this.saveDeliveriesWithTTL(CACHE_KEY, formatted);
-        console.log(`💾 ${formatted.length} entregas completadas salvas no cache`);
         return formatted;
       }
       
@@ -429,18 +417,8 @@ class DeliveryPollingService {
    * Usado para buscar entregas aceitas, ativas, etc.
    */
   async loadAllDeliveriesFromStorage(): Promise<PendingDelivery[]> {
-    try {
-      const data = await AsyncStorage.getItem('all_deliveries');
-      if (data) {
-        const deliveries = JSON.parse(data) as PendingDelivery[];
-        console.log(`📦 ${deliveries.length} entregas carregadas do storage local`);
-        return deliveries;
-      }
-      return [];
-    } catch (error) {
-      console.error('❌ Erro ao carregar entregas do storage:', error);
-      return [];
-    }
+    // Storage all_deliveries foi removido - sempre retorna vazio
+    return [];
   }
 
   /**
@@ -620,19 +598,10 @@ class DeliveryPollingService {
       // Carrega todas as entregas
       const allDeliveries = await this.loadAllDeliveriesFromStorage();
       
-      // Filtra removendo a entrega
-      const filtered = allDeliveries.filter(d => String(d.id) !== id);
+      // Storage all_deliveries foi removido - apenas limpa das rejeições
+      console.log(`⚠️ Storage all_deliveries foi removido - limpando apenas das rejeições`);
       
-      if (filtered.length === allDeliveries.length) {
-        console.log(`⚠️ Entrega ${id} não encontrada no storage`);
-        return;
-      }
-      
-      // Salva de volta
-      await AsyncStorage.setItem('all_deliveries', JSON.stringify(filtered));
-      console.log(`✅ Entrega ${id} removida do storage local (${allDeliveries.length} → ${filtered.length})`);
-      
-      // Remove também das rejeições se existir
+      // Remove das rejeições se existir
       if (this.rejectedDeliveryIds.has(id)) {
         this.rejectedDeliveryIds.delete(id);
         await this.saveRejectedDeliveries();
@@ -703,8 +672,8 @@ class DeliveryPollingService {
         return acc;
       }, []);
       
-      // Salva de volta no AsyncStorage
-      await AsyncStorage.setItem('all_deliveries', JSON.stringify(uniqueDeliveries));
+      // Storage all_deliveries foi removido - método não faz nada
+      console.warn('⚠️ updateDeliveryInStorage() - storage all_deliveries foi removido');
       
     } catch (error) {
       console.error(`❌ Erro ao atualizar entrega ${deliveryId} no storage:`, error);
@@ -737,6 +706,7 @@ class DeliveryPollingService {
         AsyncStorage.removeItem(this.STORAGE_KEY_COMPLETED_CACHE),
         AsyncStorage.removeItem(this.STORAGE_KEY_REJECTED),
         AsyncStorage.removeItem('deliveries'), // Cache principal de entregas
+        AsyncStorage.removeItem('all_deliveries'), // Storage legado de entregas
       ]);
       
       console.log('✅ Todos os caches de entregas foram limpos com sucesso');
@@ -758,10 +728,9 @@ class DeliveryPollingService {
       const existingIndex = allDeliveries.findIndex(d => String(d.id) === normalizedId);
       
       if (existingIndex >= 0) {
-        allDeliveries[existingIndex].status = newStatus;
-        await AsyncStorage.setItem('all_deliveries', JSON.stringify(allDeliveries));
-        console.log(`✅ Status da entrega ${deliveryId} atualizado para ${newStatus}`);
-        return true;
+        // Storage all_deliveries foi removido - método não atualiza
+        console.warn('⚠️ forceUpdateDeliveryStatus() - storage all_deliveries foi removido');
+        return false;
       } else {
         console.log(`❌ Entrega ${deliveryId} não encontrada no storage`);
         return false;
@@ -812,9 +781,11 @@ class DeliveryPollingService {
       const uniqueDeliveries = Array.from(uniqueMap.values());
       const removedCount = initialCount - uniqueDeliveries.length;
       
+      // Storage all_deliveries foi removido - método não salva
+      console.warn('⚠️ removeDuplicateDeliveries() - storage all_deliveries foi removido');
+      
       if (removedCount > 0) {
-        await AsyncStorage.setItem('all_deliveries', JSON.stringify(uniqueDeliveries));
-        console.log(`✅ ${removedCount} duplicata(s) removida(s). Total: ${initialCount} → ${uniqueDeliveries.length}`);
+        console.log(`✅ ${removedCount} duplicata(s) identificada(s). Total: ${initialCount} → ${uniqueDeliveries.length} (não salvo)`);
       } else {
         console.log(`✅ Nenhuma duplicata encontrada`);
       }

@@ -38,6 +38,8 @@ class LocationService {
   private useMockLocation = false;
   private mockLocationData: LocationData | null = null;
   private mockMovementEnabled = false;
+  private permissionsChecked = false;
+  private hasLocationPermission: boolean | null = null;
   
   // Centro de Ubajara-CE (Praça da Matriz)
   private readonly UBAJARA_CENTER = {
@@ -146,39 +148,60 @@ class LocationService {
     try {
       // Se está em modo mock e não está forçando, não precisa pedir permissões
       if (this.useMockLocation && !forceRequest) {
-        console.log('🎭 Modo mock - pulando solicitação de permissões');
+        if (!this.permissionsChecked) {
+          console.log('🎭 Modo mock - pulando solicitação de permissões');
+        }
+        this.permissionsChecked = true;
+        this.hasLocationPermission = true;
         return true;
       }
-      
+
+      // Usa cache de permissões para evitar logs repetidos
+      if (this.permissionsChecked && !forceRequest) {
+        return !!this.hasLocationPermission;
+      }
+
       console.log('📍 Verificando permissões de localização...');
-      
+
       // Verifica permissões atuais
       let { status } = await Location.getForegroundPermissionsAsync();
-      
+
       if (status === 'granted') {
-        console.log('✅ Permissões de localização já concedidas');
+        if (!this.permissionsChecked) {
+          console.log('✅ Permissões de localização já concedidas');
+        }
+        this.permissionsChecked = true;
+        this.hasLocationPermission = true;
         return true;
       }
-      
+
       // Se estamos forçando ou não está em mock, solicita permissões
       if (forceRequest || !this.useMockLocation) {
         console.log('🔐 Solicitando permissões de localização...');
         const response = await Location.requestForegroundPermissionsAsync();
         status = response.status;
-        
+
         if (status === 'granted') {
           console.log('✅ Permissões concedidas!');
+          this.permissionsChecked = true;
+          this.hasLocationPermission = true;
           return true;
         } else {
           console.log('❌ Permissões negadas pelo usuário');
+          this.permissionsChecked = true;
+          this.hasLocationPermission = false;
           return false;
         }
       }
-      
+
       console.log('⚠️ Permissões de localização não concedidas - operando em modo restrito');
+      this.permissionsChecked = true;
+      this.hasLocationPermission = false;
       return false;
     } catch (error) {
       console.error('❌ Erro ao verificar permissões:', error);
+      this.permissionsChecked = true;
+      this.hasLocationPermission = false;
       return false;
     }
   }
@@ -272,7 +295,7 @@ class LocationService {
     }
 
     try {
-      const hasPermission = await this.requestPermissions();
+      const hasPermission = await this.requestPermissions(false);
       if (!hasPermission) {
         console.log('⚠️ Sem permissões - tentando usar localização padrão');
         // Se não tem permissão mas está em DEV, retorna coordenadas de Ubajara-CE como fallback

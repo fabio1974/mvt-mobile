@@ -74,7 +74,7 @@ export default function AvailableRidesScreen({
 
   const loadInitialData = async () => {
     setLoading(true);
-    await getCurrentLocation();
+    // Localização não é necessária - backend filtra entregas automaticamente
     await loadDeliveries();
     setLoading(false);
   };
@@ -106,12 +106,8 @@ export default function AvailableRidesScreen({
 
       switch (selectedTab) {
         case 'pending':
-          // PENDING → Sempre online, ordenado por mais recente
-          results = await deliveryPollingService.getPendingDeliveries(
-            userLocation?.latitude,
-            userLocation?.longitude,
-            5000 // 5km de raio
-          );
+          // PENDING → Sempre online, backend filtra automaticamente
+          results = await deliveryPollingService.getPendingDeliveries();
           break;
 
         case 'active':
@@ -148,12 +144,8 @@ export default function AvailableRidesScreen({
 
       switch (selectedTab) {
         case 'pending':
-          // PENDING → Sempre busca do backend
-          results = await deliveryPollingService.getPendingDeliveries(
-            userLocation?.latitude,
-            userLocation?.longitude,
-            5000
-          );
+          // PENDING → Sempre busca do backend, já vem filtrado
+          results = await deliveryPollingService.getPendingDeliveries();
           break;
 
         case 'active':

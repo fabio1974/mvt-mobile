@@ -21,47 +21,41 @@ interface DeliveryListResponse {
   content: DeliveryEntity[];
   totalElements: number;
   totalPages: number;
-  size: number;
-  number: number;
 }
 
 class DeliveryService {
   private metadata: EntityMetadata | null = null;
-  private lastMetadataFetch = 0;
-  private metadataCacheDuration = 5 * 60 * 1000; // 5 minutos
 
   /**
-   * Busca metadata da entidade delivery
+   * Busca entregas COMPLETADAS do motoboy logado
+   * Novo endpoint dedicado: /deliveries/courier/completed
+   * Backend já ordena por completedAt DESC
+   * NOTA: Este endpoint retorna array direto, não paginado
    */
-  async getDeliveryMetadata(forceRefresh = false): Promise<EntityMetadata | null> {
-    const now = Date.now();
-    
-    // Usa cache se disponível e não expirado
-    if (!forceRefresh && this.metadata && (now - this.lastMetadataFetch < this.metadataCacheDuration)) {
-      console.log('📋 Usando metadata de delivery do cache');
-      return this.metadata;
-    }
-
+  async getMyCompletedDeliveries(): Promise<DeliveryResponse> {
     try {
-      console.log('📡 Buscando metadata de delivery...');
-      const response = await apiClient.get<EntityMetadata>('/metadata/delivery');
+      console.log('✅ Buscando minhas entregas completadas (novo endpoint courier/completed)...');
+
+      const response = await apiClient.get<DeliveryEntity[]>('/deliveries/courier/completed');
       
-      this.metadata = response.data;
-      this.lastMetadataFetch = now;
+      const deliveries = Array.isArray(response.data) ? response.data : [];
+      console.log(`✅ ${deliveries.length} entregas completadas encontradas no backend`);
+      console.log(`📋 IDs retornados:`, deliveries.map(d => d.id).join(', '));
+      console.log(`📊 Status de cada entrega:`, deliveries.map(d => ({ id: d.id, status: d.status, courier: d.courier?.id })));
       
-      console.log('✅ Metadata de delivery carregada:', this.metadata);
-      this.debugPrintFields();
-      
-      return this.metadata;
+      return {
+        success: true,
+        data: deliveries
+      };
     } catch (error: any) {
-      console.error('❌ Erro ao buscar metadata de delivery:', error);
-      return null;
+      console.error('❌ Erro ao buscar entregas completadas:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || 'Erro ao buscar entregas completadas'
+      };
     }
   }
 
-  /**
-   * Debug: imprime os campos da entidade delivery
-   */
   private debugPrintFields(): void {
     if (!this.metadata) return;
 
@@ -139,6 +133,16 @@ class DeliveryService {
   async acceptDelivery(deliveryId: string): Promise<DeliveryResponse> {
     try {
       console.log(`✋ Aceitando delivery ${deliveryId}...`);
+      
+      // 🔒 Bloqueia se o courier não tem conta bancária ATIVA persistida
+      const { bankAccountService } = require('./bankAccountService');
+      const hasActiveBank = await bankAccountService.getHasActiveBankAccount();
+      if (!hasActiveBank) {
+        return {
+          success: false,
+          error: 'Para aceitar corridas, cadastre e ative seus dados bancários. Abra o menu (botão no canto superior esquerdo) e toque em "Dados Bancários".'
+        };
+      }
       
       // 🔒 CONSTRAINT: Verifica se já existe entrega ACCEPTED
       const { deliveryPollingService } = require('./deliveryPollingService');
@@ -485,47 +489,7 @@ class DeliveryService {
     }
   }
 
-  /**
-   * Busca entregas COMPLETADAS do motoboy logado
-   * Retorna: COMPLETED
-   * Filtrado pelo campo courier (motoboy)
-   */
-  async getMyCompletedDeliveries(): Promise<DeliveryResponse> {
-    try {
-      console.log('✅ Buscando minhas entregas completadas...');
-      console.log('📋 Parâmetros da requisição:', {
-        courierFilter: 'mine',
-        status: 'COMPLETED',
-        sort: 'completedAt,desc',
-        size: 50
-      });
-      
-      const response = await apiClient.get<DeliveryListResponse>('/deliveries', {
-        params: {
-          courierFilter: 'mine', // Filtra pelo motoboy logado
-          status: 'COMPLETED',
-          sort: 'completedAt,desc',
-          size: 50
-        }
-      });
-      
-      console.log(`✅ ${response.data.content.length} entregas completadas encontradas no backend`);
-      console.log(`📋 IDs retornados:`, response.data.content.map(d => d.id).join(', '));
-      console.log(`📊 Status de cada entrega:`, response.data.content.map(d => ({ id: d.id, status: d.status, courier: d.courier?.id })));
-      
-      return {
-        success: true,
-        data: response.data.content
-      };
-    } catch (error: any) {
-      console.error('❌ Erro ao buscar entregas completadas:', error);
-      console.error('📋 Detalhes do erro:', error.response?.data);
-      return {
-        success: false,
-        error: error.response?.data?.message || 'Erro ao buscar entregas completadas'
-      };
-    }
-  }
+
 
   /**
    * Retorna campos importantes da metadata para a UI

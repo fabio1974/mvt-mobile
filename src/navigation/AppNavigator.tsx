@@ -77,11 +77,9 @@ export default function AppNavigator() {
     // await AsyncStorage.removeItem("saved_password");
     // await AsyncStorage.removeItem("keep_logged_in");
 
-    // Só limpa o apiClient se não estiver usando mock
-    if (!authService.isUsingMock()) {
-      const { apiClient } = await import("../services/api");
-      await apiClient.clearAuthToken();
-    }
+    // Limpa auth header do apiClient
+    const { apiClient } = await import("../services/api");
+    await apiClient.clearAuthToken();
 
     setUser(null);
   };

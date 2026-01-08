@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface BankAccount {
   id?: string | number;
@@ -22,6 +23,8 @@ export interface BankAccountResponse {
   data?: BankAccount | BankAccount[];
   error?: string;
 }
+
+const STORAGE_KEY_HAS_ACTIVE_BANK = 'has_active_bank_account';
 
 class BankAccountService {
   /**
@@ -75,6 +78,8 @@ class BankAccountService {
 
       if (response.data) {
         console.log('✅ Conta bancária criada com sucesso!', response.data);
+        const isActive = response.data.status === 'ACTIVE';
+        await this.setHasActiveBankAccount(isActive);
         
         return {
           success: true,
@@ -112,6 +117,8 @@ class BankAccountService {
 
       if (response.data) {
         console.log('✅ Conta bancária atualizada com sucesso!', response.data);
+        const isActive = response.data.status === 'ACTIVE';
+        await this.setHasActiveBankAccount(isActive);
         
         return {
           success: true,
@@ -155,6 +162,38 @@ class BankAccountService {
         error: error.response?.data?.message || 'Erro ao deletar conta bancária',
       };
     }
+  }
+
+  /**
+   * Flag persistida indicando se o usuário tem conta bancária ATIVA
+   */
+  async setHasActiveBankAccount(value: boolean): Promise<void> {
+    await AsyncStorage.setItem(STORAGE_KEY_HAS_ACTIVE_BANK, value ? 'true' : 'false');
+  }
+
+  async clearHasActiveBankAccount(): Promise<void> {
+    await AsyncStorage.removeItem(STORAGE_KEY_HAS_ACTIVE_BANK);
+  }
+
+  async getHasActiveBankAccount(): Promise<boolean> {
+    const stored = await AsyncStorage.getItem(STORAGE_KEY_HAS_ACTIVE_BANK);
+    return stored === 'true';
+  }
+
+  /**
+   * Revalida no backend e persiste a flag de conta ATIVA
+   */
+  async refreshHasActiveBankAccount(userId: string): Promise<boolean> {
+    const result = await this.getUserBankAccounts(userId);
+    if (!result.success || !result.data) {
+      await this.setHasActiveBankAccount(false);
+      return false;
+    }
+
+    const accounts = Array.isArray(result.data) ? result.data : [result.data];
+    const hasActive = accounts.some(acc => acc.status === 'ACTIVE');
+    await this.setHasActiveBankAccount(hasActive);
+    return hasActive;
   }
 }
 

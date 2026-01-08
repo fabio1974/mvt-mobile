@@ -253,7 +253,7 @@ export default function BankAccountScreen({
                     <Text style={styles.dropdownLoadingText}>Carregando bancos...</Text>
                   </View>
                 ) : banks.length > 0 ? (
-                  <ScrollView style={styles.dropdownScroll} scrollEnabled={banks.length > 8}>
+                  <ScrollView style={styles.dropdownScroll} scrollEnabled={banks.length > 8} nestedScrollEnabled={true}>
                     {banks.map(bank => (
                       <TouchableOpacity
                         key={bank.code}
@@ -390,66 +390,19 @@ export default function BankAccountScreen({
             )}
           </View>
 
-          {/* Status */}
+          {/* Status (somente leitura) */}
           <View style={styles.section}>
             <Text style={styles.label}>
               Status<Text style={styles.required}>*</Text>
             </Text>
-            <TouchableOpacity
-              style={styles.dropdown}
-              onPress={() => setShowStatusDropdown(!showStatusDropdown)}
-            >
+            <View style={[styles.dropdown, { opacity: 0.7 }]}> 
               <Text style={styles.dropdownText}>{selectedStatus}</Text>
-              <Ionicons
-                name={showStatusDropdown ? 'chevron-up' : 'chevron-down'}
-                size={20}
-                color="#666"
-              />
-            </TouchableOpacity>
-
-            {showStatusDropdown && (
-              <View style={styles.dropdownMenu}>
-                {STATUSES.map(status => (
-                  <TouchableOpacity
-                    key={status.value}
-                    style={styles.dropdownItem}
-                    onPress={() => {
-                      setAccount({ ...account, status: status.value as any });
-                      setShowStatusDropdown(false);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.dropdownItemText,
-                        account.status === status.value &&
-                          styles.dropdownItemSelected,
-                      ]}
-                    >
-                      {status.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
+              <Ionicons name="lock-closed" size={18} color="#666" />
+            </View>
+            <Text style={styles.helperText}>O status é controlado pela validação interna. Não é editável aqui.</Text>
           </View>
 
-          {/* Transferência Automática */}
-          <View style={styles.checkboxSection}>
-            <TouchableOpacity
-              style={styles.checkbox}
-              onPress={() =>
-                setAccount({
-                  ...account,
-                  automaticTransfer: !account.automaticTransfer,
-                })
-              }
-            >
-              {account.automaticTransfer && (
-                <Ionicons name="checkmark" size={20} color="#7c3aed" />
-              )}
-            </TouchableOpacity>
-            <Text style={styles.checkboxLabel}>Transferência Automática</Text>
-          </View>
+
 
           <View style={{ height: 100 }} />
         </ScrollView>
@@ -610,6 +563,11 @@ const styles = StyleSheet.create({
   dropdownEmptyText: {
     fontSize: 14,
     color: '#999',
+  },
+  helperText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 6,
   },
   checkboxSection: {
     flexDirection: 'row',
