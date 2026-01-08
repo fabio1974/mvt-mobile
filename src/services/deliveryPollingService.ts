@@ -720,6 +720,32 @@ class DeliveryPollingService {
   }
 
   /**
+   * Limpa TODOS os caches de entregas (ativas, concluídas, rejeitadas e do storage)
+   * Deve ser chamado quando um novo usuário faz login
+   */
+  async clearAllDeliveryCaches(): Promise<void> {
+    try {
+      console.log('🧹 Limpando TODOS os caches de entregas...');
+      
+      // Limpa cache em memória
+      this.cachedDeliveries.clear();
+      this.rejectedDeliveryIds.clear();
+      
+      // Limpa cache no AsyncStorage
+      await Promise.all([
+        AsyncStorage.removeItem(this.STORAGE_KEY_ACTIVE_CACHE),
+        AsyncStorage.removeItem(this.STORAGE_KEY_COMPLETED_CACHE),
+        AsyncStorage.removeItem(this.STORAGE_KEY_REJECTED),
+        AsyncStorage.removeItem('deliveries'), // Cache principal de entregas
+      ]);
+      
+      console.log('✅ Todos os caches de entregas foram limpos com sucesso');
+    } catch (error) {
+      console.error('❌ Erro ao limpar caches de entregas:', error);
+    }
+  }
+
+  /**
    * Força atualização do status de uma entrega específica no storage
    * Útil para corrigir inconsistências manualmente
    */

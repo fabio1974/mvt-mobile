@@ -1,6 +1,7 @@
 import { apiClient } from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ErrorLogger } from '../utils/errorLogger';
+import { deliveryPollingService } from './deliveryPollingService';
 // import { crashlyticsService } from './crashlyticsService'; // Desabilitado para Expo Go
 
 /**
@@ -128,6 +129,9 @@ export class AuthService {
     
     if (this.useMock) {
       const mockResult = await mockLogin(email, password);
+      if (mockResult.success) {
+        await deliveryPollingService.clearAllDeliveryCaches();
+      }
       return {
         success: mockResult.success,
         token: mockResult.data?.token,
@@ -177,6 +181,9 @@ export class AuthService {
       await AsyncStorage.setItem('auth_token', token);
       await AsyncStorage.setItem('user', JSON.stringify(mappedUser));
       await apiClient.setAuthToken(token);
+      
+      // Limpa cache de entregas para evitar vazamento de dados entre contas
+      await deliveryPollingService.clearAllDeliveryCaches();
 
       // Define usuário no Crashlytics (desabilitado para Expo Go)
       // crashlyticsService.setUser(mappedUser.id, mappedUser.email, mappedUser.name);
@@ -200,6 +207,9 @@ export class AuthService {
       if (error.code === 'ECONNABORTED' || error.code === 'ENOTFOUND' || error.message.includes('Network Error')) {
         console.log('🔄 Erro de rede - usando mock como fallback');
         const mockResult = await mockLogin(email, password);
+        if (mockResult.success) {
+          await deliveryPollingService.clearAllDeliveryCaches();
+        }
         return {
           success: mockResult.success,
           token: mockResult.data?.token,
