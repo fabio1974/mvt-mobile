@@ -253,25 +253,27 @@ export default function BankAccountScreen({
                     <Text style={styles.dropdownLoadingText}>Carregando bancos...</Text>
                   </View>
                 ) : banks.length > 0 ? (
-                  banks.map(bank => (
-                    <TouchableOpacity
-                      key={bank.code}
-                      style={styles.dropdownItem}
-                      onPress={() => {
-                        setAccount({ ...account, bankCode: bank.code });
-                        setShowBankDropdown(false);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.dropdownItemText,
-                          account.bankCode === bank.code && styles.dropdownItemSelected,
-                        ]}
+                  <ScrollView style={styles.dropdownScroll} scrollEnabled={banks.length > 8}>
+                    {banks.map(bank => (
+                      <TouchableOpacity
+                        key={bank.code}
+                        style={styles.dropdownItem}
+                        onPress={() => {
+                          setAccount({ ...account, bankCode: bank.code });
+                          setShowBankDropdown(false);
+                        }}
                       >
-                        {bank.code} - {bank.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))
+                        <Text
+                          style={[
+                            styles.dropdownItemText,
+                            account.bankCode === bank.code && styles.dropdownItemSelected,
+                          ]}
+                        >
+                          {bank.code} - {bank.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
                 ) : (
                   <View style={styles.dropdownEmpty}>
                     <Text style={styles.dropdownEmptyText}>Nenhum banco disponível</Text>
@@ -572,6 +574,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     maxHeight: 200,
     zIndex: 1000,
+  },
+  dropdownScroll: {
+    maxHeight: 200,
   },
   dropdownItem: {
     paddingHorizontal: 12,
