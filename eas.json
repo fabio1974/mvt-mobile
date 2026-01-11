@@ -31,7 +31,8 @@
       },
       "env": {
         "GRADLE_OPTS": "-Xmx4096m -XX:MaxMetaspaceSize=1024m"
-      }
+      },
+      "credentialsSource": "remote"
     }
   },
   "submit": {
