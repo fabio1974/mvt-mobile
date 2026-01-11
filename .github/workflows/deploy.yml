@@ -30,20 +30,18 @@ jobs:
       - name: 📚 Instalar dependências
         run: npm ci  # ci = clean install (mais confiável que install)
 
-      - name: 🛠️ Instalar EAS CLI
-        run: npm install -g eas-cli
+      - name: � Setup Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EAS_TOKEN }}
 
       - name: 🏗️ Build APK com EAS
-        env:
-          EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
         run: |
-          eas build --platform android --profile production-apk --wait
+          eas build --platform android --profile production-apk --non-interactive --wait
         timeout-minutes: 40  # Build pode levar até 20 min
 
       - name: 📤 Submeter para Google Play
-        env:
-          EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
-          GOOGLE_PLAY_SA_KEY: ${{ secrets.GOOGLE_PLAY_SA_KEY }}
         run: |
           # Escreve o service account JSON em arquivo temporário
           echo '${{ secrets.GOOGLE_PLAY_SA_KEY }}' > /tmp/google-play-sa-key.json
