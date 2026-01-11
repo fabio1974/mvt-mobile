@@ -1,0 +1,68 @@
+name: Deploy to Google Play
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Permite disparar manualmente
+
+jobs:
+  build-and-submit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90  # EAS Build leva ~15 min, submit mais 5 min
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: 🔧 Setup Java (para Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto'
+          java-version: '17'
+
+      - name: 📚 Instalar dependências
+        run: npm ci  # ci = clean install (mais confiável que install)
+
+      - name: 🏗️ Build APK com EAS
+        env:
+          EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
+        run: |
+          npm install -g eas-cli
+          eas build --platform android --profile production-apk --wait
+        timeout-minutes: 40  # Build pode levar até 20 min
+
+      - name: 📤 Submeter para Google Play
+        env:
+          EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
+          GOOGLE_PLAY_SA_KEY: ${{ secrets.GOOGLE_PLAY_SA_KEY }}
+        run: |
+          # Escreve o service account JSON em arquivo temporário
+          echo '${{ secrets.GOOGLE_PLAY_SA_KEY }}' > /tmp/google-play-sa-key.json
+          
+          # Submete para Google Play
+          eas submit \
+            --platform android \
+            --profile production-apk \
+            --non-interactive
+        timeout-minutes: 10
+
+      - name: ✅ Notificar sucesso
+        if: success()
+        run: |
+          echo "✨ App submetido com sucesso para Google Play!"
+          echo "Status: Em preparação para revisão"
+          echo "Acesse: https://play.google.com/console"
+
+      - name: ❌ Notificar falha
+        if: failure()
+        run: |
+          echo "Build ou submit falhou"
+          echo "Verifique os logs acima para mais detalhes"
+        continue-on-error: true
