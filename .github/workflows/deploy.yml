@@ -30,6 +30,9 @@ jobs:
       - name: 📚 Instalar dependências
         run: npm ci  # ci = clean install (mais confiável que install)
 
+      - name: 🛠️ Instalar EAS CLI
+        run: npm install -g eas-cli
+
       - name: 🏗️ Build APK com EAS
         env:
           EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
