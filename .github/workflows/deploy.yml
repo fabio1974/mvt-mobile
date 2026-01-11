@@ -37,6 +37,9 @@ jobs:
           token: ${{ secrets.EAS_TOKEN }}
 
       - name: 🏗️ Build APK com EAS
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           eas build --platform android --profile production-apk --non-interactive --wait
         timeout-minutes: 40  # Build pode levar até 20 min
