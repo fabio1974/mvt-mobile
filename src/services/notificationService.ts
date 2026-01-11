@@ -67,6 +67,14 @@ class NotificationService {
       console.log('📱 Platform:', Platform.OS);
       console.log('========================================');
       
+      // Valida se o token mudou (pode acontecer em update de SO/app)
+      if (Platform.OS !== 'web') {
+        const hasTokenChanged = await this.validateTokenChange();
+        if (hasTokenChanged) {
+          console.warn('⚠️ Token Expo mudou! Re-registrado com sucesso');
+        }
+      }
+      
       // Solicita permissões
       const hasPermission = await this.requestPermissions();
       
@@ -173,6 +181,7 @@ class NotificationService {
 
       // Salva localmente
       await AsyncStorage.setItem('push_token', token);
+      await AsyncStorage.setItem('push_token_timestamp', Date.now().toString());
 
       console.log('📤 Enviando token REAL para backend...');
 
@@ -194,6 +203,56 @@ class NotificationService {
       console.error('❌ Stack:', error.stack);
       console.error('❌ ==========================================');
       throw error;
+    }
+  }
+
+  /**
+   * Valida se o token Expo mudou desde a última inicialização
+   * Isso pode acontecer quando o SO é atualizado ou app é reinstalado parcialmente
+   */
+  private async validateTokenChange(): Promise<boolean> {
+    try {
+      // Obtém o token anterior salvo
+      const savedToken = await AsyncStorage.getItem('push_token');
+      
+      // Se não há token salvo, é a primeira vez
+      if (!savedToken) {
+        console.log('📱 [Token Validation] Primeira inicialização - sem token anterior');
+        return false;
+      }
+      
+      // Obtém o token atual do Expo
+      const currentTokenData = await Notifications.getExpoPushTokenAsync({
+        projectId: 'd4a3b53e-0dbc-48c1-a865-cf9eff2dd52c'
+      });
+      const currentToken = currentTokenData.data;
+      
+      // Compara tokens
+      if (currentToken !== savedToken) {
+        console.error('❌ ==========================================');
+        console.error('❌ TOKEN EXPO MUDOU!');
+        console.error('❌ Anterior:', savedToken.substring(0, 30) + '...');
+        console.error('❌ Atual:   ', currentToken.substring(0, 30) + '...');
+        console.error('❌ ==========================================');
+        
+        // Força re-registro do novo token
+        await this.registerPushToken();
+        
+        return true; // Token mudou e foi re-registrado
+      }
+      
+      // Token continua o mesmo
+      const savedTimestamp = await AsyncStorage.getItem('push_token_timestamp');
+      const daysSinceLastCheck = savedTimestamp 
+        ? Math.floor((Date.now() - parseInt(savedTimestamp)) / (1000 * 60 * 60 * 24))
+        : 'desconhecido';
+      
+      console.log('✅ [Token Validation] Token válido e inalterado (último check: ' + daysSinceLastCheck + ' dias atrás)');
+      return false; // Token não mudou
+    } catch (error) {
+      console.error('❌ [Token Validation] Erro ao validar token:', error);
+      // Em caso de erro, continua normalmente (não falha a inicialização)
+      return false;
     }
   }
 

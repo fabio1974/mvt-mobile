@@ -17,14 +17,14 @@
     },
     "ios": {
       "supportsTablet": true,
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Este app precisa acessar sua localização para otimizar as rotas de entrega e melhorar o serviço.",
         "NSLocationWhenInUseUsageDescription": "Este app precisa acessar sua localização para otimizar as rotas de entrega.",
         "UIBackgroundModes": [
           "location",
           "background-fetch",
-          "location",
-          "background-fetch"
+          "remote-notification"
         ]
       },
       "config": {
@@ -78,7 +78,9 @@
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
-      ]
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging"
     ],
     "extra": {
       "eas": {

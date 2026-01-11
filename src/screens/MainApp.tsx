@@ -21,6 +21,7 @@ import { Ionicons } from "@expo/vector-icons";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { unifiedLocationService } from "../services/unifiedLocationService";
 import { notificationService } from "../services/notificationService";
+import { fcmService } from "../services/fcmService";
 import { locationService } from "../services/locationService";
 import { deliveryPollingService } from "../services/deliveryPollingService";
 import { userLocationService } from "../services/userLocationService";
@@ -306,6 +307,33 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
       console.log("🔔 [MainApp] Platform:", Platform.OS);
       console.log("🔔 [MainApp] __DEV__:", __DEV__);
 
+      // Inicializa FCM primeiro
+      if (Platform.OS !== 'web') {
+        console.log("📱 [MainApp] Inicializando FCM...");
+        const fcmToken = await fcmService.getToken();
+        
+        if (fcmToken && user?.id) {
+          await fcmService.sendTokenToBackend(user.id);
+          
+          // Setup FCM listeners
+          fcmService.setupNotificationListeners((message) => {
+            console.log("🚚 [MainApp] FCM Message recebido:", message);
+            
+            // Processa notificação de convite de entrega
+            if (message.data?.type === 'delivery_invite') {
+              const data = {
+                deliveryId: message.data.deliveryId,
+                ...message.data
+              };
+              
+              setInviteDeliveryData(data);
+              setInviteDeliveryId(data.deliveryId);
+              setShowRideInvite(true);
+            }
+          });
+        }
+      }
+
       const success = await notificationService.initialize();
 
       if (success) {
@@ -408,8 +436,20 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     }, 100);
   };
 
-  const handleRideInviteAccept = (deliveryId: string) => {
+  const handleRideInviteAccept = async (deliveryId: string) => {
     console.log(`✅ [MainApp] Entrega ${deliveryId} ACEITA`);
+    
+    try {
+      // Salva em cache de ativas (remove de pendentes se estava lá)
+      const deliveryToSave = {
+        id: deliveryId,
+        ...inviteDeliveryData
+      };
+      await deliveryPollingService.acceptDelivery(deliveryId, deliveryToSave);
+      console.log(`📦 Entrega ${deliveryId} salva em cache de ativas`);
+    } catch (error) {
+      console.error(`❌ Erro ao aceitar entrega:`, error);
+    }
     
     setShowRideInvite(false);
     setActiveDeliveryId(deliveryId);
@@ -420,19 +460,28 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
   };
 
   const handleRideInviteReject = async (deliveryId: string) => {
-    console.log(`❌ [MainApp] Entrega ${deliveryId} REJEITADA (apenas localmente)`);
-    console.log('📝 A entrega continua aparecendo na lista de entregas disponíveis');
-    console.log('🔒 Marcada como rejeitada indefinidamente (até ser aceita por outro motoboy)');
+    console.log(`❌ [MainApp] Entrega ${deliveryId} REJEITADA`);
+    console.log('📝 A entrega será salva no cache de pendentes (locais)');
     
-    // Marca como rejeitada (não mostra popup novamente, mas continua na lista)
-    await deliveryPollingService.markAsRejected(deliveryId);
+    try {
+      // Salva em cache de pendentes
+      const deliveryToSave = {
+        id: deliveryId,
+        ...inviteDeliveryData,
+        locallyRejected: true
+      };
+      await deliveryPollingService.savePendingDelivery(deliveryToSave);
+      console.log(`⏳ Entrega ${deliveryId} salva em pendentes (local)`);
+    } catch (error) {
+      console.error(`❌ Erro ao rejeitar entrega:`, error);
+    }
     
     console.log('🔒 [MainApp] Fechando modal após rejeição');
     setShowRideInvite(false);
     setInviteDeliveryId(null);
     setInviteDeliveryData(null);
     console.log('✅ [MainApp] Estados do modal resetados');
-  };
+  };;
 
   const handleRideInviteClose = () => {
     setShowRideInvite(false);
@@ -1087,7 +1136,11 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
                                   'deliveries',
                                   'active_delivery_id',
                                   'location_tracking_active',
-                                  'mock_location_enabled'
+                                  'mock_location_enabled',
+                                  'my_pending_deliveries_cache',
+                                  'my_active_deliveries_cache',
+                                  'my_completed_deliveries_cache',
+                                  'rejected_deliveries'
                                 ];
                                 
                                 // Remove todas as chaves

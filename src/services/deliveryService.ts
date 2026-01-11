@@ -80,53 +80,6 @@ class DeliveryService {
   }
 
   /**
-   * Busca deliveries disponíveis para o motoboy
-   * Filtra por status e proximidade
-   */
-  async getAvailableDeliveries(
-    latitude?: number,
-    longitude?: number,
-    radius?: number
-  ): Promise<DeliveryResponse> {
-    try {
-      const params: any = {};
-      
-      // Adiciona filtros de localização se fornecidos
-      if (latitude && longitude) {
-        params.latitude = latitude;
-        params.longitude = longitude;
-        if (radius) params.radius = radius;
-      }
-
-      // Busca deliveries disponíveis (provavelmente status = 'PENDING' ou 'AVAILABLE')
-      console.log('🔍 Buscando deliveries disponíveis...', params);
-      
-      const response = await apiClient.get<DeliveryListResponse>('/deliveries', {
-        params: {
-          ...params,
-          // Adiciona filtros baseados no que descobrirmos na metadata
-          status: 'PENDING', // ou o status correspondente a "disponível"
-          size: 20, // limite de resultados
-          sort: 'createdAt,desc' // mais recentes primeiro
-        }
-      });
-
-      console.log(`✅ ${response.data.content.length} deliveries encontrados`);
-      
-      return {
-        success: true,
-        data: response.data.content
-      };
-    } catch (error: any) {
-      console.error('❌ Erro ao buscar deliveries disponíveis:', error);
-      return {
-        success: false,
-        error: error.response?.data?.message || 'Erro ao buscar entregas'
-      };
-    }
-  }
-
-  /**
    * Aceita uma entrega
    * CONSTRAINT: Apenas 1 entrega ACCEPTED por vez
    */

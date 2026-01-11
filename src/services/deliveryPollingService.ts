@@ -38,7 +38,8 @@ class DeliveryPollingService {
   private onNewDeliveryCallback: ((delivery: PendingDelivery) => void | Promise<void>) | null = null;
   private cachedDeliveries: Map<string, PendingDelivery> = new Map();
   private rejectedDeliveryIds: Set<string> = new Set();
-  private readonly STORAGE_KEY_REJECTED = 'rejected_deliveries';
+  private readonly STORAGE_KEY_PENDING = 'rejected_deliveries';
+  private readonly STORAGE_KEY_PENDING_CACHE = 'my_pending_deliveries_cache';
   private readonly STORAGE_KEY_ACTIVE_CACHE = 'my_active_deliveries_cache';
   private readonly STORAGE_KEY_COMPLETED_CACHE = 'my_completed_deliveries_cache';
   private readonly CACHE_TTL = 30 * 60 * 1000; // 30 minutos
@@ -75,7 +76,7 @@ class DeliveryPollingService {
    */
   private async loadRejectedDeliveries(): Promise<void> {
     try {
-      const data = await AsyncStorage.getItem(this.STORAGE_KEY_REJECTED);
+      const data = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING);
       
       if (data) {
         const ids = JSON.parse(data) as string[];
@@ -93,7 +94,7 @@ class DeliveryPollingService {
   private async saveRejectedDeliveries(): Promise<void> {
     try {
       const ids = Array.from(this.rejectedDeliveryIds);
-      await AsyncStorage.setItem(this.STORAGE_KEY_REJECTED, JSON.stringify(ids));
+      await AsyncStorage.setItem(this.STORAGE_KEY_PENDING, JSON.stringify(ids));
       console.log(`💾 Salvas ${ids.length} entregas rejeitadas no storage (sem expiração)`);
     } catch (error) {
       console.error('❌ Erro ao salvar entregas rejeitadas:', error);
@@ -170,12 +171,20 @@ class DeliveryPollingService {
     radiusKm?: number
   ): Promise<PendingDelivery[]> {
     try {
-      console.log('🌐 Buscando entregas PENDING (sempre online) via /deliveries/courier/pendings ...');
+      console.log('🌐 Buscando entregas PENDING (endpoint) e mesclando com cache local...');
+
+      // 1. Cache local (push rejeitadas ou recebidas antes) - PRIORIDADE
+      const localPending = await this.getPendingFromCache();
+      const localMap = new Map<string, any>();
+      localPending.forEach((d: any) => {
+        if (d && d.id) {
+          localMap.set(d.id, { ...d, locallyRejected: true });
+        }
+      });
       
       const params: any = {
-        // Mantemos parâmetros auxiliares para futura filtragem no BE
         size: 50,
-        sort: 'createdAt,desc' // Mais recentes primeiro
+        sort: 'createdAt,desc'
       };
 
       if (latitude && longitude) {
@@ -184,43 +193,48 @@ class DeliveryPollingService {
         if (radiusKm) params.radius = radiusKm;
       }
       
-      // Novo endpoint dedicado para pendências por courier
+      // 2. Busca do backend
       const response = await apiClient.get<any>('/deliveries/courier/pendings', { params });
-
-      // Aceita tanto paginação (content) quanto lista direta
       const rawList = Array.isArray(response.data?.content)
         ? response.data.content
         : (Array.isArray(response.data) ? response.data : []);
 
-      if (rawList && rawList.length > 0) {
-        const deliveries: PendingDelivery[] = rawList.map((d: any) => ({
-          ...d,
-          id: d.id,
-          pickupAddress: d.fromAddress || d.pickupAddress || 'Endereço não informado',
-          dropoffAddress: d.toAddress || d.dropoffAddress || 'Endereço não informado',
-          distance: d.distance || 0,
-          estimatedPayment: d.totalAmount || d.estimatedPayment || 0,
-          createdAt: d.createdAt,
-          status: d.status || 'PENDING',
-          locallyRejected: false
-        }));
+      // 3. IDs rejeitados (sistema legado)
+      const rejectedIds = await this.getRejectedDeliveryIds();
 
-        // Marca rejeitadas localmente em vez de filtrar
-        const rejected = await this.getRejectedDeliveryIds();
-        const marked = deliveries.map(d => ({
-          ...d,
-          locallyRejected: rejected.includes(d.id)
-        }));
+      // 4. Merge: começa com backend, sobrescreve com local (única versão por ID)
+      const mergedMap = new Map<string, any>();
+      
+      // Adiciona do backend
+      (rawList || []).forEach((d: any) => {
+        if (d && d.id && !localMap.has(d.id)) {
+          mergedMap.set(d.id, {
+            ...d,
+            id: d.id,
+            pickupAddress: d.fromAddress || d.pickupAddress || 'Endereço não informado',
+            dropoffAddress: d.toAddress || d.dropoffAddress || 'Endereço não informado',
+            distance: d.distance || 0,
+            estimatedPayment: d.totalAmount || d.estimatedPayment || 0,
+            createdAt: d.createdAt,
+            status: d.status || 'PENDING',
+            locallyRejected: rejectedIds.includes(d.id)
+          });
+        }
+      });
 
-        const rejectedCount = marked.filter(d => d.locallyRejected).length;
-        console.log(`✅ ${marked.length} entregas PENDING disponíveis (${rejectedCount} marcadas como rejeitadas localmente)`);
-        return marked;
-      }
+      // Adiciona/sobrescreve com local (PRIORIDADE - substitui se já existe)
+      localMap.forEach((delivery, id) => {
+        mergedMap.set(id, delivery);
+      });
 
-      return [];
+      const merged = Array.from(mergedMap.values());
+      const rejectedCount = merged.filter(d => d.locallyRejected).length;
+      console.log(`✅ ${merged.length} entregas PENDING únicas (endpoint+cache). ${rejectedCount} marcadas rejeitadas.`);
+      return merged;
     } catch (error: any) {
       console.error('❌ Erro ao buscar entregas PENDING (courier/pendings):', error);
-      return [];
+      // Fallback para cache local
+      return await this.getPendingFromCache();
     }
   }
 
@@ -346,6 +360,97 @@ class DeliveryPollingService {
       console.log('🗑️ Cache de entregas completadas invalidado');
     } catch (error) {
       console.error('❌ Erro ao invalidar cache:', error);
+    }
+  }
+
+  async saveActiveDelivery(delivery: any): Promise<void> {
+    try {
+      if (!delivery || !delivery.id) {
+        console.warn('⚠️ Tentativa de salvar entrega inválida');
+        return;
+      }
+      const cachedData = await AsyncStorage.getItem(this.STORAGE_KEY_ACTIVE_CACHE);
+      const cached = cachedData ? JSON.parse(cachedData) : { deliveries: [], timestamp: 0 };
+      const index = cached.deliveries.findIndex((d: any) => d.id === delivery.id);
+      if (index >= 0) {
+        cached.deliveries[index] = delivery;
+      } else {
+        cached.deliveries.push(delivery);
+      }
+      cached.timestamp = Date.now();
+      await AsyncStorage.setItem(this.STORAGE_KEY_ACTIVE_CACHE, JSON.stringify(cached));
+      console.log(`✅ Entrega ${delivery.id} salva no cache de ativas`);
+    } catch (error) {
+      console.error('❌ Erro ao salvar:', error);
+    }
+  }
+
+  async savePendingDelivery(delivery: any): Promise<void> {
+    try {
+      if (!delivery || !delivery.id) return;
+      
+      const cachedData = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING_CACHE);
+      const cached = cachedData ? JSON.parse(cachedData) : { deliveries: [], timestamp: 0 };
+      
+      // 🔒 CONSTRAINT: Garante apenas UMA ocorrência por ID
+      const existingIndex = cached.deliveries.findIndex((d: any) => d.id === delivery.id);
+      
+      if (existingIndex >= 0) {
+        const existing = cached.deliveries[existingIndex];
+        // Prioridade: rejeitada > não rejeitada
+        // Se ambas rejeitadas ou ambas não rejeitadas, mantém a nova (mais recente)
+        if (delivery.locallyRejected || !existing.locallyRejected) {
+          cached.deliveries[existingIndex] = delivery;
+          console.log(`♻️ Entrega ${delivery.id} atualizada no cache (substituiu duplicata)`);
+        } else {
+          console.log(`⏭️ Entrega ${delivery.id} já existe como rejeitada, mantendo versão rejeitada`);
+        }
+      } else {
+        cached.deliveries.push(delivery);
+        console.log(`⏳ Entrega ${delivery.id} salva em pendentes (nova)`);
+      }
+      
+      cached.timestamp = Date.now();
+      await AsyncStorage.setItem(this.STORAGE_KEY_PENDING_CACHE, JSON.stringify(cached));
+    } catch (error) {
+      console.error('❌ Erro:', error);
+    }
+  }
+
+  async acceptDelivery(deliveryId: string, deliveryData: any): Promise<void> {
+    try {
+      // Remove do cache de pendentes se existir
+      const pendingData = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING_CACHE);
+      if (pendingData) {
+        const pendingCache = JSON.parse(pendingData);
+        pendingCache.deliveries = pendingCache.deliveries.filter((d: any) => d.id !== deliveryId);
+        await AsyncStorage.setItem(this.STORAGE_KEY_PENDING_CACHE, JSON.stringify(pendingCache));
+      }
+      // Salva em ativas
+      deliveryData.status = 'ACCEPTED';
+      await this.saveActiveDelivery(deliveryData);
+      console.log(`✅ Entrega ${deliveryId} aceita e salva em ativas`);
+    } catch (error) {
+      console.error('❌ Erro:', error);
+    }
+  }
+
+  /**
+   * Busca entregas do cache de pendentes (recebidas via push e marcadas localmente)
+   */
+  async getPendingFromCache(): Promise<any[]> {
+    try {
+      const cachedData = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING_CACHE);
+      if (!cachedData) {
+        console.log('⏳ Nenhuma entrega pendente no cache local');
+        return [];
+      }
+      const cached = JSON.parse(cachedData);
+      console.log(`✅ ${cached.deliveries.length} entregas pendentes carregadas do cache local`);
+      return cached.deliveries || [];
+    } catch (error) {
+      console.error('❌ Erro ao buscar pendentes do cache:', error);
+      return [];
     }
   }
 
@@ -484,18 +589,20 @@ class DeliveryPollingService {
         return;
       }
       
-      // Busca até 1000 entregas PENDING mais recentes (ordenadas por updatedAt)
-      const response = await apiClient.get<any>('/deliveries', {
+      // Busca PENDING do courier no endpoint dedicado
+      const response = await apiClient.get<any>('/deliveries/courier/pendings', {
         params: {
-          page: 0,
-          size: 1000,
-          status: 'PENDING',
+          size: 100,
           sort: 'updatedAt,desc'
         }
       });
 
-      if (response.data?.content && response.data.content.length > 0) {
-        const deliveries = response.data.content;
+      // Aceita tanto paginação (content) quanto lista direta
+      const deliveries = Array.isArray(response.data?.content)
+        ? response.data.content
+        : (Array.isArray(response.data) ? response.data : []);
+
+      if (deliveries && deliveries.length > 0) {
         console.log(`📦 ${deliveries.length} entregas pendentes encontradas`);
         
         // Itera da mais recente para a mais antiga procurando a primeira não rejeitada
@@ -581,8 +688,22 @@ class DeliveryPollingService {
   async unmarkAsRejected(deliveryId: string): Promise<void> {
     console.log(`✅ Removendo rejeição da entrega ${deliveryId}`);
     
+    // Remove do Set de IDs rejeitados (sistema legado)
     this.rejectedDeliveryIds.delete(deliveryId);
     await this.saveRejectedDeliveries();
+    
+    // Remove do cache de pendentes
+    try {
+      const pendingData = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING_CACHE);
+      if (pendingData) {
+        const pendingCache = JSON.parse(pendingData);
+        pendingCache.deliveries = pendingCache.deliveries.filter((d: any) => d.id !== deliveryId);
+        await AsyncStorage.setItem(this.STORAGE_KEY_PENDING_CACHE, JSON.stringify(pendingCache));
+        console.log(`✅ Entrega ${deliveryId} removida do cache de pendentes`);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao remover do cache de pendentes:', error);
+    }
     
     console.log(`✅ Entrega ${deliveryId} disponível novamente`);
   }
@@ -704,7 +825,7 @@ class DeliveryPollingService {
       await Promise.all([
         AsyncStorage.removeItem(this.STORAGE_KEY_ACTIVE_CACHE),
         AsyncStorage.removeItem(this.STORAGE_KEY_COMPLETED_CACHE),
-        AsyncStorage.removeItem(this.STORAGE_KEY_REJECTED),
+        AsyncStorage.removeItem(this.STORAGE_KEY_PENDING),
         AsyncStorage.removeItem('deliveries'), // Cache principal de entregas
         AsyncStorage.removeItem('all_deliveries'), // Storage legado de entregas
       ]);

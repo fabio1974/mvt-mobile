@@ -96,7 +96,7 @@ export default function AvailableRidesScreen({
 
   /**
    * Carrega entregas baseado na aba selecionada
-   * - PENDING: Sempre online
+   * - PENDING: Pendentes do endpoint + cache local (push rejeitadas)
    * - ACTIVE: Cache 30min
    * - COMPLETED: Cache 30min
    */
@@ -106,7 +106,7 @@ export default function AvailableRidesScreen({
 
       switch (selectedTab) {
         case 'pending':
-          // PENDING → Sempre online, backend filtra automaticamente
+          // PENDING → junta endpoint + cache local (push rejeitadas)
           results = await deliveryPollingService.getPendingDeliveries();
           break;
 
@@ -134,7 +134,7 @@ export default function AvailableRidesScreen({
 
   /**
    * Pull-to-Refresh
-   * PENDING: Sempre busca online
+   * PENDING: Busca endpoint + cache local
    * ACTIVE/COMPLETED: Força refresh (ignora cache)
    */
   const handleRefresh = async () => {
@@ -144,7 +144,7 @@ export default function AvailableRidesScreen({
 
       switch (selectedTab) {
         case 'pending':
-          // PENDING → Sempre busca do backend, já vem filtrado
+          // PENDING → Endpoint + cache local
           results = await deliveryPollingService.getPendingDeliveries();
           break;
 

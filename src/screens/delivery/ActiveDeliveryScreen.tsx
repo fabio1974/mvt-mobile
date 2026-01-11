@@ -160,19 +160,19 @@ export default function ActiveDeliveryScreen({
         console.log('⚠️ Falha ao sincronizar com backend (continuando com cache):', syncError);
       }
       
-      // Busca do storage local (agora atualizado com dados do backend)
-      const deliveries = await deliveryPollingService.loadAllDeliveriesFromStorage();
-      const found = deliveries.find(d => d.id === deliveryId);
+      // Busca do cache de entregas ativas
+      const activeDeliveries = await deliveryPollingService.getMyActiveDeliveries(false);
+      const found = activeDeliveries.find(d => d.id === deliveryId);
       
       if (found) {
-        console.log(`✅ Entrega ${deliveryId} carregada do storage:`, found.status);
+        console.log(`✅ Entrega ${deliveryId} carregada do cache de ativas:`, found.status);
         console.log(`📦 Detalhes completos:`, JSON.stringify(found, null, 2));
         setDelivery(found);
       } else {
-        console.error(`❌ Entrega ${deliveryId} não encontrada no storage local`);
+        console.error(`❌ Entrega ${deliveryId} não encontrada no cache de ativas`);
         Alert.alert(
           "Erro", 
-          "Entrega não encontrada no storage local. A entrega pode ter sido aceita por outro motoboy.",
+          "Entrega não encontrada no cache de ativas. Tente atualizar a lista.",
           [{ text: "OK", onPress: () => onBack() }]
         );
       }
@@ -306,7 +306,6 @@ export default function ActiveDeliveryScreen({
 
               if (response.success) {
                 Alert.alert("Sucesso!", response.message || "Entrega completada");
-                await loadDelivery();
                 setTimeout(() => onComplete(), 1500);
               } else {
                 Alert.alert("Erro", response.error || "Não foi possível completar");
