@@ -26,9 +26,16 @@
     "production-apk": {
       "extends": "production",
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "GRADLE_OPTS": "-Xmx4096m -XX:MaxMetaspaceSize=1024m"
       }
     }
+  },
+  "hooks": {
+    "prebuild": "./eas-hooks/eas-build-pre-install.sh"
   },
   "submit": {
     "production": {
