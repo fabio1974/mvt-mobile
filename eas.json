@@ -27,18 +27,11 @@
       "extends": "production",
       "android": {
         "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease",
-        "keystore": {
-          "keystorePath": "./keystores/zapi10.jks",
-          "keystorePassword": "$KEYSTORE_PASSWORD",
-          "keyAlias": "zapi10",
-          "keyPassword": "$KEY_PASSWORD"
-        }
+        "gradleCommand": ":app:assembleRelease"
       },
       "env": {
         "GRADLE_OPTS": "-Xmx4096m -XX:MaxMetaspaceSize=1024m"
-      },
-      "credentialsSource": "remote"
+      }
     }
   },
   "submit": {
