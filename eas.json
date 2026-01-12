@@ -37,7 +37,13 @@
   "submit": {
     "production": {
       "android": {
-        "serviceAccountKeyPath": "./google-services-key.json",
+        "serviceAccountKeyPath": "/tmp/google-play-sa-key.json",
+        "track": "internal"
+      }
+    },
+    "production-apk": {
+      "android": {
+        "serviceAccountKeyPath": "/tmp/google-play-sa-key.json",
         "track": "internal"
       }
     }
