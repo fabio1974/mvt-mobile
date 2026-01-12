@@ -36,9 +36,9 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EAS_TOKEN }}
 
-      - name: 🏗️ Build APK com EAS
+      - name: 🏗️ Build AAB com EAS
         run: |
-          eas build --platform android --profile production-apk --non-interactive --wait
+          eas build --platform android --profile production --non-interactive --wait
         timeout-minutes: 40  # Build pode levar até 20 min
 
       - name: 📤 Submeter para Google Play
@@ -49,7 +49,7 @@ jobs:
           # Submete para Google Play usando o último build
           eas submit \
             --platform android \
-            --profile production-apk \
+            --profile production \
             --latest \
             --non-interactive
         timeout-minutes: 10
