@@ -1,0 +1,35 @@
+# EAS Build ignore file
+# Não ignorar as pastas nativas - precisamos delas para o build
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# Keystores sensíveis (mas não a pasta android em si)
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
