@@ -3,11 +3,6 @@
     "version": ">= 16.27.0",
     "appVersionSource": "remote"
   },
-  "doctor": {
-    "ignoredChecks": [
-      "Check for app config fields that may not be synced in a non-CNG project"
-    ]
-  },
   "build": {
     "development": {
       "developmentClient": true,
