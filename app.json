@@ -7,7 +7,6 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "projectId": "d4a3b53e-0dbc-48c1-a865-cf9eff2dd52c",
     "description": "Aplicativo de gerenciamento de entregas para motoristas. Receba notificações, visualize rotas e gerencie suas entregas com facilidade.",
     "githubUrl": "https://github.com/fabio1974/mvt-mobile",
     "splash": {
@@ -62,9 +61,7 @@
       "icon": "./assets/icon.png",
       "color": "#e94560",
       "androidMode": "default",
-      "androidCollapsedTitle": "MVT Notifications",
-      "vapidPublicKey": "BN8ym6-oByG6GoAEC9399ciwUoal_2vh1IyGph1xS9rnF0yC5GPHfrlgE-th3JqyPPaFOqXKnfQBYVj9oS5a15k",
-      "serviceWorkerPath": "sw.js"
+      "androidCollapsedTitle": "MVT Notifications"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -80,7 +77,8 @@
         }
       ],
       "@react-native-firebase/app",
-      "@react-native-firebase/messaging"
+      "@react-native-firebase/messaging",
+      "expo-font"
     ],
     "extra": {
       "eas": {
