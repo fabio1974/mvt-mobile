@@ -46,10 +46,11 @@ jobs:
           # Escreve o service account JSON em arquivo temporário
           echo '${{ secrets.GOOGLE_PLAY_SA_KEY }}' > /tmp/google-play-sa-key.json
           
-          # Submete para Google Play
+          # Submete para Google Play usando o último build
           eas submit \
             --platform android \
             --profile production-apk \
+            --latest \
             --non-interactive
         timeout-minutes: 10
 
