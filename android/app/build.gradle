@@ -4,6 +4,11 @@ apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
+// Read version from app.json (single source of truth)
+def appJson = new groovy.json.JsonSlurper().parseText(file("$projectRoot/app.json").text)
+def appVersionName = appJson.expo.version
+def appVersionCode = appJson.expo.android.versionCode
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -92,8 +97,8 @@ android {
         applicationId 'com.mvt.mobile.zapi10'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 33
-        versionName "1.0.2"
+        versionCode appVersionCode
+        versionName appVersionName
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
