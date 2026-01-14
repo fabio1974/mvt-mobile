@@ -1,4 +1,4 @@
-package com.zapi10
+package com.mvt.mobile.zapi10
 
 import android.os.Build
 import android.os.Bundle

@@ -37,3 +37,4 @@ yarn-error.*
 *.tsbuildinfo
 upload_certificate.pem
 @fb040974__mvt-mobile.jks
+android/keystore.properties
