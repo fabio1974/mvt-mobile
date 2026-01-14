@@ -35,3 +35,5 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+upload_certificate.pem
+@fb040974__mvt-mobile.jks
