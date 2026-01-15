@@ -138,6 +138,7 @@ export default function AvailableRidesScreen({
    * ACTIVE/COMPLETED: Força refresh (ignora cache)
    */
   const handleRefresh = async () => {
+    console.log('🔄 Pull-to-refresh iniciado na aba:', selectedTab);
     setRefreshing(true);
     try {
       let results: any[] = [];
@@ -145,7 +146,9 @@ export default function AvailableRidesScreen({
       switch (selectedTab) {
         case 'pending':
           // PENDING → Endpoint + cache local
+          console.log('📋 Buscando entregas pendentes...');
           results = await deliveryPollingService.getPendingDeliveries();
+          console.log(`📋 Recebidas ${results.length} entregas pendentes`);
           break;
 
         case 'active':
@@ -160,6 +163,7 @@ export default function AvailableRidesScreen({
       }
 
       setDeliveries(results);
+      console.log(`✅ Lista atualizada com ${results.length} entregas`);
     } catch (error) {
       console.error('❌ Erro ao atualizar:', error);
       Alert.alert('Erro', 'Não foi possível atualizar');
@@ -335,11 +339,12 @@ export default function AvailableRidesScreen({
       statusInfo = { color: '#ef4444', icon: '❌', label: 'Rejeitada' };
     }
 
-    // Função para formatar data
+    // Função para formatar data (timezone Brasília -3)
     const formatDate = (dateString: string | undefined) => {
       if (!dateString) return null;
       const date = new Date(dateString);
       return date.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',

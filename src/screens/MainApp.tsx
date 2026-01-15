@@ -24,6 +24,7 @@ import { notificationService } from "../services/notificationService";
 import { fcmService } from "../services/fcmService";
 import { locationService } from "../services/locationService";
 import { deliveryPollingService } from "../services/deliveryPollingService";
+import { deliveryService } from "../services/deliveryService";
 import { userLocationService } from "../services/userLocationService";
 import AvailableRidesScreen from "./delivery/AvailableRidesScreen";
 import ActiveDeliveryScreen from "./delivery/ActiveDeliveryScreen";
@@ -213,33 +214,34 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
   }, [isDelivery, hasActiveDelivery]); // ← Adiciona hasActiveDelivery como dependência
 
   // Verifica se há entrega ativa ao montar e quando volta de background
-  // IMPORTANTE: Executa ANTES de verificar novas entregas para evitar race condition
+  // NOTA: Verificação de entregas PENDENTES foi REMOVIDA da inicialização
+  // Agora só verifica pendentes via botão "Verificar Nova Entrega" ou via Push Notification
   useEffect(() => {
     if (!isDelivery) return;
 
-    const checkActiveDeliveryAndPending = async () => {
-      // 1. Primeiro verifica se já tem entrega ativa
+    const checkActiveDeliveryOnly = async () => {
+      // Apenas verifica se já tem entrega ativa (NÃO verifica pendentes automaticamente)
       const hasAccepted = await deliveryPollingService.hasAcceptedDelivery();
       setHasActiveDelivery(hasAccepted);
-      console.log(`� [MainApp] Entrega ativa detectada: ${hasAccepted}`);
+      console.log(`📦 [MainApp] Entrega ativa detectada: ${hasAccepted}`);
       
-      // 2. Só verifica novas entregas se NÃO houver entrega ativa
-      if (!hasAccepted) {
-        console.log('✅ [MainApp] Sem entrega ativa - verificando novas entregas...');
-        deliveryPollingService.checkLatestPendingDelivery();
+      // REMOVIDO: Verificação automática de entregas pendentes
+      // Agora o usuário precisa clicar em "Verificar Nova Entrega" ou receber push
+      if (hasAccepted) {
+        console.log('🚫 [MainApp] Já tem entrega ativa');
       } else {
-        console.log('🚫 [MainApp] Já tem entrega ativa - não verifica novas entregas');
+        console.log('✅ [MainApp] Sem entrega ativa - aguardando push ou clique no botão');
       }
     };
 
     // Verifica ao montar o componente
-    checkActiveDeliveryAndPending();
+    checkActiveDeliveryOnly();
 
     // Monitora mudanças no estado do app (foreground/background)
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
       if (nextAppState === 'active') {
         console.log('📱 App voltou para foreground - verificando entrega ativa...');
-        await checkActiveDeliveryAndPending();
+        await checkActiveDeliveryOnly();
       }
     });
 
@@ -316,19 +318,65 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
           await fcmService.sendTokenToBackend(user.id);
           
           // Setup FCM listeners
-          fcmService.setupNotificationListeners((message) => {
+          fcmService.setupNotificationListeners(async (message) => {
             console.log("🚚 [MainApp] FCM Message recebido:", message);
             
+            // Exibe notificação local para mostrar banner em foreground
+            const title = message.notification?.title || '🚚 Nova Notificação';
+            const body = message.notification?.body || 'Você recebeu uma nova mensagem';
+            
+            // Mostra notificação visual mesmo em foreground
+            await notificationService.sendLocalNotification(title, body, message.data);
+            
+            // Expo Push envia o data como JSON string no campo body
+            // Precisamos parsear para obter type e deliveryId
+            let parsedData = message.data;
+            if (message.data?.body && typeof message.data.body === 'string') {
+              try {
+                const bodyData = JSON.parse(message.data.body);
+                parsedData = { ...message.data, ...bodyData };
+                console.log("📦 [MainApp] Data parseado do body:", parsedData);
+              } catch (e) {
+                console.log("⚠️ [MainApp] Não foi possível parsear body como JSON");
+              }
+            }
+            
             // Processa notificação de convite de entrega
-            if (message.data?.type === 'delivery_invite') {
-              const data = {
-                deliveryId: message.data.deliveryId,
-                ...message.data
-              };
+            if (parsedData?.type === 'delivery_invite' && parsedData.deliveryId) {
+              console.log("🚀 [MainApp] Processando delivery_invite - buscando dados completos...");
+              console.log("📦 [MainApp] DeliveryId da notificação:", parsedData.deliveryId);
               
-              setInviteDeliveryData(data);
-              setInviteDeliveryId(data.deliveryId);
-              setShowRideInvite(true);
+              // Verifica se esta entrega já foi rejeitada
+              const rejectedIds = await deliveryPollingService.getRejectedDeliveryIds();
+              if (rejectedIds.includes(parsedData.deliveryId)) {
+                console.log("🚫 [MainApp] Entrega já foi rejeitada, ignorando push:", parsedData.deliveryId);
+                return;
+              }
+              
+              try {
+                // Busca dados completos da entrega no backend
+                const response = await deliveryService.getDeliveryById(parsedData.deliveryId);
+                
+                if (response.success && response.data) {
+                  const deliveryData = Array.isArray(response.data) ? response.data[0] : response.data;
+                  console.log("✅ [MainApp] Dados completos da entrega obtidos:", deliveryData.id);
+                  setInviteDeliveryData(deliveryData);
+                  setInviteDeliveryId(deliveryData.id);
+                  setShowRideInvite(true);
+                } else {
+                  console.error("❌ [MainApp] Erro ao buscar entrega:", response.error);
+                  // Fallback: usa dados parciais da notificação
+                  setInviteDeliveryData(parsedData);
+                  setInviteDeliveryId(parsedData.deliveryId);
+                  setShowRideInvite(true);
+                }
+              } catch (error) {
+                console.error("❌ [MainApp] Exceção ao buscar entrega:", error);
+                // Fallback: usa dados parciais da notificação
+                setInviteDeliveryData(parsedData);
+                setInviteDeliveryId(parsedData.deliveryId);
+                setShowRideInvite(true);
+              }
             }
           });
         }
@@ -339,8 +387,16 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
       if (success) {
         // Registra callback para quando receber convite de entrega
         console.log("📲 [MainApp] Registrando callback de delivery invite");
-        notificationService.setOnDeliveryInvite((data) => {
+        notificationService.setOnDeliveryInvite(async (data) => {
           console.log("🚚 [MainApp] Callback de delivery invite chamado!", data);
+          
+          // Verifica se esta entrega já foi rejeitada
+          const rejectedIds = await deliveryPollingService.getRejectedDeliveryIds();
+          if (data.deliveryId && rejectedIds.includes(data.deliveryId)) {
+            console.log("🚫 [MainApp] Entrega já foi rejeitada, ignorando callback:", data.deliveryId);
+            return;
+          }
+          
           console.log("🚚 [MainApp] Abrindo modal de convite...");
           
           // Abre o modal com os dados da entrega
@@ -402,6 +458,17 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
 
   // Função para abrir o modal de convite (separada para evitar closure issues)
   const openInviteModal = async (delivery: any) => {
+    // Verifica se esta entrega já foi rejeitada (normaliza ID para string)
+    const deliveryIdStr = String(delivery.id);
+    const rejectedIds = await deliveryPollingService.getRejectedDeliveryIds();
+    console.log(`📋 [MainApp] IDs rejeitados: ${rejectedIds.join(', ') || 'nenhum'}`);
+    console.log(`📋 [MainApp] ID da entrega: ${deliveryIdStr} (tipo: ${typeof delivery.id})`);
+    
+    if (delivery.id && rejectedIds.includes(deliveryIdStr)) {
+      console.log('🚫 [MainApp] Popup bloqueado - entrega já foi rejeitada:', deliveryIdStr);
+      return;
+    }
+    
     // SEMPRE verifica em tempo real se há entrega ativa (não depende de state)
     const hasAccepted = await deliveryPollingService.hasAcceptedDelivery();
     
@@ -461,17 +528,12 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
 
   const handleRideInviteReject = async (deliveryId: string) => {
     console.log(`❌ [MainApp] Entrega ${deliveryId} REJEITADA`);
-    console.log('📝 A entrega será salva no cache de pendentes (locais)');
+    console.log('📝 A entrega será marcada como rejeitada no cache');
     
     try {
-      // Salva em cache de pendentes
-      const deliveryToSave = {
-        id: deliveryId,
-        ...inviteDeliveryData,
-        locallyRejected: true
-      };
-      await deliveryPollingService.savePendingDelivery(deliveryToSave);
-      console.log(`⏳ Entrega ${deliveryId} salva em pendentes (local)`);
+      // Marca como rejeitada no cache (persiste indefinidamente)
+      await deliveryPollingService.markAsRejected(deliveryId);
+      console.log(`✅ Entrega ${deliveryId} marcada como rejeitada`);
     } catch (error) {
       console.error(`❌ Erro ao rejeitar entrega:`, error);
     }
@@ -767,7 +829,7 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
               >
                 <Text style={styles.featureIcon}>{hasActiveDelivery ? "🚚" : "🎁"}</Text>
                 <Text style={[styles.featureTitle, { color: "#fff" }]}>
-                  {hasActiveDelivery ? "Ver Entrega Ativa" : "Verificar Nova Entrega"}
+                  {hasActiveDelivery ? "Abra Sua Entrega Ativa" : "Verificar Nova Entrega"}
                 </Text>
                 <Text style={[styles.featureDescription, { color: hasActiveDelivery ? "#dbeafe" : "#f0fdf4" }]}>
                   {hasActiveDelivery 

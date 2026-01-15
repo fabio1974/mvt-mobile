@@ -37,8 +37,7 @@ interface PendingDeliveriesResponse {
 class DeliveryPollingService {
   private onNewDeliveryCallback: ((delivery: PendingDelivery) => void | Promise<void>) | null = null;
   private cachedDeliveries: Map<string, PendingDelivery> = new Map();
-  private rejectedDeliveryIds: Set<string> = new Set();
-  private readonly STORAGE_KEY_PENDING = 'rejected_deliveries';
+  // Cache único para pendentes (com campo locallyRejected)
   private readonly STORAGE_KEY_PENDING_CACHE = 'my_pending_deliveries_cache';
   private readonly STORAGE_KEY_ACTIVE_CACHE = 'my_active_deliveries_cache';
   private readonly STORAGE_KEY_COMPLETED_CACHE = 'my_completed_deliveries_cache';
@@ -63,42 +62,38 @@ class DeliveryPollingService {
     }
 
     console.log('🔄 Inicializando serviço de polling...');
-    
-    // Carrega IDs rejeitados do storage
-    await this.loadRejectedDeliveries();
-    
     this.isInitialized = true;
     console.log('✅ Serviço de polling inicializado');
   }
 
   /**
-   * Carrega IDs de entregas rejeitadas do AsyncStorage (sem expiração)
+   * Retorna IDs de entregas rejeitadas (do cache de pendentes)
    */
-  private async loadRejectedDeliveries(): Promise<void> {
+  async getRejectedDeliveryIds(): Promise<string[]> {
     try {
-      const data = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING);
-      
-      if (data) {
-        const ids = JSON.parse(data) as string[];
-        this.rejectedDeliveryIds = new Set(ids);
-        console.log(`📦 Carregadas ${ids.length} entregas rejeitadas do storage (sem expiração)`);
+      const cachedData = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING_CACHE);
+      if (cachedData) {
+        const cached = JSON.parse(cachedData);
+        const rejectedIds = (cached.deliveries || [])
+          .filter((d: any) => d.locallyRejected === true)
+          .map((d: any) => String(d.id));
+        console.log(`📋 IDs rejeitados no cache: ${rejectedIds.join(', ') || 'nenhum'}`);
+        return rejectedIds;
       }
+      return [];
     } catch (error) {
-      console.error('❌ Erro ao carregar entregas rejeitadas:', error);
+      console.error('❌ Erro ao buscar IDs rejeitados:', error);
+      return [];
     }
   }
 
   /**
-   * Salva IDs de entregas rejeitadas no AsyncStorage (sem expiração)
+   * Verifica se uma entrega específica foi rejeitada
    */
-  private async saveRejectedDeliveries(): Promise<void> {
-    try {
-      const ids = Array.from(this.rejectedDeliveryIds);
-      await AsyncStorage.setItem(this.STORAGE_KEY_PENDING, JSON.stringify(ids));
-      console.log(`💾 Salvas ${ids.length} entregas rejeitadas no storage (sem expiração)`);
-    } catch (error) {
-      console.error('❌ Erro ao salvar entregas rejeitadas:', error);
-    }
+  async isDeliveryRejected(deliveryId: string): Promise<boolean> {
+    const normalizedId = String(deliveryId);
+    const rejectedIds = await this.getRejectedDeliveryIds();
+    return rejectedIds.includes(normalizedId);
   }
 
   /**
@@ -173,14 +168,19 @@ class DeliveryPollingService {
     try {
       console.log('🌐 Buscando entregas PENDING (endpoint) e mesclando com cache local...');
 
-      // 1. Cache local (push rejeitadas ou recebidas antes) - PRIORIDADE
+      // 1. Cache local (entregas pendentes com status de rejeição)
       const localPending = await this.getPendingFromCache();
       const localMap = new Map<string, any>();
       localPending.forEach((d: any) => {
         if (d && d.id) {
-          localMap.set(d.id, { ...d, locallyRejected: true });
+          // Preserva o estado locallyRejected do cache
+          localMap.set(String(d.id), { ...d });
         }
       });
+      
+      // 2. IDs rejeitados (do cache único)
+      const rejectedIds = await this.getRejectedDeliveryIds();
+      console.log(`📋 IDs rejeitados: ${rejectedIds.join(', ') || 'nenhum'}`);
       
       const params: any = {
         size: 50,
@@ -193,43 +193,54 @@ class DeliveryPollingService {
         if (radiusKm) params.radius = radiusKm;
       }
       
-      // 2. Busca do backend
+      // 3. Busca do backend
       const response = await apiClient.get<any>('/deliveries/courier/pendings', { params });
       const rawList = Array.isArray(response.data?.content)
         ? response.data.content
         : (Array.isArray(response.data) ? response.data : []);
 
-      // 3. IDs rejeitados (sistema legado)
-      const rejectedIds = await this.getRejectedDeliveryIds();
-
-      // 4. Merge: começa com backend, sobrescreve com local (única versão por ID)
+      // 4. Merge: backend + cache local
       const mergedMap = new Map<string, any>();
       
-      // Adiciona do backend
+      // Adiciona do backend (verifica se está rejeitada)
       (rawList || []).forEach((d: any) => {
-        if (d && d.id && !localMap.has(d.id)) {
-          mergedMap.set(d.id, {
-            ...d,
-            id: d.id,
-            pickupAddress: d.fromAddress || d.pickupAddress || 'Endereço não informado',
-            dropoffAddress: d.toAddress || d.dropoffAddress || 'Endereço não informado',
-            distance: d.distance || 0,
-            estimatedPayment: d.totalAmount || d.estimatedPayment || 0,
-            createdAt: d.createdAt,
-            status: d.status || 'PENDING',
-            locallyRejected: rejectedIds.includes(d.id)
-          });
+        if (d && d.id) {
+          const idStr = String(d.id);
+          const isRejected = rejectedIds.includes(idStr);
+          
+          // Se já tem no cache local, usa o local (pode ter mais dados)
+          if (localMap.has(idStr)) {
+            mergedMap.set(idStr, {
+              ...d,
+              ...localMap.get(idStr),
+              locallyRejected: isRejected || localMap.get(idStr)?.locallyRejected === true
+            });
+          } else {
+            mergedMap.set(idStr, {
+              ...d,
+              id: d.id,
+              pickupAddress: d.fromAddress || d.pickupAddress || 'Endereço não informado',
+              dropoffAddress: d.toAddress || d.dropoffAddress || 'Endereço não informado',
+              distance: d.distance || 0,
+              estimatedPayment: d.totalAmount || d.estimatedPayment || 0,
+              createdAt: d.createdAt,
+              status: d.status || 'PENDING',
+              locallyRejected: isRejected
+            });
+          }
         }
       });
 
-      // Adiciona/sobrescreve com local (PRIORIDADE - substitui se já existe)
+      // Adiciona entregas que estão só no cache local (não vieram do backend)
       localMap.forEach((delivery, id) => {
-        mergedMap.set(id, delivery);
+        if (!mergedMap.has(id)) {
+          mergedMap.set(id, delivery);
+        }
       });
 
       const merged = Array.from(mergedMap.values());
-      const rejectedCount = merged.filter(d => d.locallyRejected).length;
-      console.log(`✅ ${merged.length} entregas PENDING únicas (endpoint+cache). ${rejectedCount} marcadas rejeitadas.`);
+      const rejectedCount = merged.filter(d => d.locallyRejected === true).length;
+      console.log(`✅ ${merged.length} entregas PENDING únicas. ${rejectedCount} rejeitadas.`);
       return merged;
     } catch (error: any) {
       console.error('❌ Erro ao buscar entregas PENDING (courier/pendings):', error);
@@ -306,15 +317,15 @@ class DeliveryPollingService {
    */
   async getMyCompletedDeliveries(forceRefresh = false): Promise<PendingDelivery[]> {
     try {
-      console.log('🌐 Buscando entregas completadas do backend (sem cache)...');
+      console.log('🌐 Buscando entregas completadas do backend (unpaidOnly=true)...');
       const { deliveryService } = await import('./deliveryService');
-      const response = await deliveryService.getMyCompletedDeliveries();
+      // Backend filtra entregas já pagas com unpaidOnly=true
+      const response = await deliveryService.getMyCompletedDeliveries(true);
       
       if (response.success && response.data) {
         const deliveries = Array.isArray(response.data) ? response.data : [response.data];
-        console.log(`✅ Backend retornou ${deliveries.length} entregas completadas`);
+        console.log(`✅ Backend retornou ${deliveries.length} entregas completadas (não pagas)`);
         console.log(`📋 IDs das entregas do backend:`, deliveries.map((d: any) => d.id).join(', '));
-        console.log(`📊 Detalhes das entregas:`, deliveries.map((d: any) => ({ id: d.id, status: d.status, completedAt: d.completedAt })));
         
         const formatted: PendingDelivery[] = deliveries.map((d: any) => ({
           ...d,
@@ -455,14 +466,6 @@ class DeliveryPollingService {
   }
 
   /**
-   * Retorna array de IDs rejeitados
-   */
-  async getRejectedDeliveryIds(): Promise<string[]> {
-    await this.loadRejectedDeliveries();
-    return Array.from(this.rejectedDeliveryIds);
-  }
-
-  /**
    * 🔒 CONSTRAINT: Verifica se já existe entrega ACCEPTED
    * Retorna true se existir pelo menos uma entrega com status ACCEPTED
    */
@@ -484,19 +487,44 @@ class DeliveryPollingService {
    */
   async hasAcceptedDelivery(): Promise<boolean> {
     try {
-      const allDeliveries = await this.loadAllDeliveriesFromStorage();
-      
-      // Considera "ativa" qualquer entrega em andamento (ACCEPTED, PICKED_UP ou IN_TRANSIT)
-      const activeDelivery = allDeliveries.find(d => {
-        const status = d.status?.toUpperCase();
-        return status === 'ACCEPTED' || status === 'PICKED_UP' || status === 'IN_TRANSIT';
-      });
-      
-      if (activeDelivery) {
-        console.log(`🔒 Já existe entrega ativa: #${activeDelivery.id} (${activeDelivery.status})`);
-        return true;
+      // 1️⃣ Verifica no cache de entregas ativas (local)
+      const cachedData = await AsyncStorage.getItem(this.STORAGE_KEY_ACTIVE_CACHE);
+      if (cachedData) {
+        const cached = JSON.parse(cachedData);
+        const activeStatuses = ['ACCEPTED', 'PICKED_UP', 'IN_TRANSIT'];
+        const activeDelivery = cached.deliveries?.find((d: any) => {
+          const status = d.status?.toUpperCase();
+          return activeStatuses.includes(status);
+        });
+        
+        if (activeDelivery) {
+          console.log(`🔒 Já existe entrega ativa no cache: #${activeDelivery.id} (${activeDelivery.status})`);
+          return true;
+        }
       }
       
+      // 2️⃣ Fallback: Busca do backend (getMyActiveDeliveries)
+      console.log('🌐 Verificando entregas ativas no backend...');
+      const { deliveryService } = await import('./deliveryService');
+      const response = await deliveryService.getMyActiveDeliveries();
+      
+      if (response.success && response.data) {
+        const deliveries = Array.isArray(response.data) ? response.data : [response.data];
+        const activeStatuses = ['ACCEPTED', 'PICKED_UP', 'IN_TRANSIT'];
+        const activeDelivery = deliveries.find((d: any) => {
+          const status = d.status?.toUpperCase();
+          return activeStatuses.includes(status);
+        });
+        
+        if (activeDelivery) {
+          // Salva no cache local
+          await this.saveActiveDelivery(activeDelivery);
+          console.log(`🔒 Entrega ativa encontrada no backend: #${activeDelivery.id} (${activeDelivery.status})`);
+          return true;
+        }
+      }
+      
+      console.log('✅ Nenhuma entrega ativa encontrada');
       return false;
     } catch (error) {
       console.error('❌ Erro ao verificar entrega ativa:', error);
@@ -575,12 +603,17 @@ class DeliveryPollingService {
 
   /**
    * Verifica a última entrega PENDING não rejeitada (mais recente por updatedAt)
-   * Busca até 1000 entregas e itera pela lista procurando a primeira não rejeitada
+   * Busca até 100 entregas e itera pela lista procurando a primeira não rejeitada
    * 🔒 CONSTRAINT: Não mostra popup se já existe entrega ACCEPTED
+   * 🔒 CONSTRAINT: Não mostra popup se entrega já foi rejeitada no cache local
    */
   async checkLatestPendingDelivery(): Promise<void> {
     try {
       console.log('🔍 Verificando entregas pendentes (updatedAt desc)...');
+      
+      // Carrega IDs rejeitados do cache único
+      const rejectedIds = await this.getRejectedDeliveryIds();
+      console.log(`📋 IDs rejeitados no cache: ${rejectedIds.join(', ') || 'nenhum'}`);
       
       // 🔒 CONSTRAINT: Bloqueia silenciosamente se já existe entrega ACCEPTED
       const hasAccepted = await this.hasAcceptedDelivery();
@@ -610,9 +643,11 @@ class DeliveryPollingService {
         let rejectedCount = 0;
         
         for (const delivery of deliveries) {
-          if (this.rejectedDeliveryIds.has(delivery.id)) {
+          // Normaliza ID para string para comparação consistente
+          const deliveryIdStr = String(delivery.id);
+          if (rejectedIds.includes(deliveryIdStr)) {
             rejectedCount++;
-            console.log(`⏭️ Entrega ${delivery.id} - rejeitada anteriormente, pulando...`);
+            console.log(`⏭️ Entrega ${deliveryIdStr} - rejeitada anteriormente, pulando...`);
             continue;
           }
           
@@ -671,41 +706,76 @@ class DeliveryPollingService {
   }
 
   /**
-   * Marca entrega como rejeitada (indefinidamente)
+   * Marca entrega como rejeitada no cache único de pendentes
    */
   async markAsRejected(deliveryId: string): Promise<void> {
-    console.log(`❌ Marcando entrega ${deliveryId} como rejeitada localmente (indefinidamente)`);
+    const normalizedId = String(deliveryId);
+    console.log(`❌ Marcando entrega ${normalizedId} como rejeitada`);
     
-    this.rejectedDeliveryIds.add(deliveryId);
-    await this.saveRejectedDeliveries();
-    
-    console.log(`✅ Entrega ${deliveryId} marcada como rejeitada`);
+    try {
+      const pendingData = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING_CACHE);
+      const pendingCache = pendingData ? JSON.parse(pendingData) : { deliveries: [], timestamp: Date.now() };
+      
+      // Verifica se já existe no cache
+      const existingIndex = (pendingCache.deliveries || []).findIndex(
+        (d: any) => String(d.id) === normalizedId
+      );
+      
+      if (existingIndex >= 0) {
+        // Atualiza para rejeitada
+        pendingCache.deliveries[existingIndex].locallyRejected = true;
+        console.log(`♻️ Entrega ${normalizedId} atualizada para rejeitada no cache`);
+      } else {
+        // Adiciona como nova entrada rejeitada
+        pendingCache.deliveries.push({
+          id: normalizedId,
+          locallyRejected: true,
+          createdAt: new Date().toISOString()
+        });
+        console.log(`➕ Entrega ${normalizedId} adicionada como rejeitada no cache`);
+      }
+      
+      pendingCache.timestamp = Date.now();
+      await AsyncStorage.setItem(this.STORAGE_KEY_PENDING_CACHE, JSON.stringify(pendingCache));
+      
+      const rejectedCount = pendingCache.deliveries.filter((d: any) => d.locallyRejected).length;
+      console.log(`✅ Entrega ${normalizedId} marcada como rejeitada`);
+      console.log(`📊 Total rejeitadas no cache: ${rejectedCount}`);
+    } catch (error) {
+      console.error('❌ Erro ao marcar como rejeitada:', error);
+    }
   }
 
   /**
    * Remove marca de rejeição (motoboy se arrependeu)
    */
   async unmarkAsRejected(deliveryId: string): Promise<void> {
-    console.log(`✅ Removendo rejeição da entrega ${deliveryId}`);
+    const normalizedId = String(deliveryId);
+    console.log(`✅ Removendo rejeição da entrega ${normalizedId}`);
     
-    // Remove do Set de IDs rejeitados (sistema legado)
-    this.rejectedDeliveryIds.delete(deliveryId);
-    await this.saveRejectedDeliveries();
-    
-    // Remove do cache de pendentes
     try {
       const pendingData = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING_CACHE);
       if (pendingData) {
         const pendingCache = JSON.parse(pendingData);
-        pendingCache.deliveries = pendingCache.deliveries.filter((d: any) => d.id !== deliveryId);
+        
+        // Encontra a entrega e marca como não rejeitada (ou remove)
+        const existingIndex = (pendingCache.deliveries || []).findIndex(
+          (d: any) => String(d.id) === normalizedId
+        );
+        
+        if (existingIndex >= 0) {
+          pendingCache.deliveries[existingIndex].locallyRejected = false;
+          console.log(`♻️ Entrega ${normalizedId} desmarcada como rejeitada`);
+        }
+        
+        pendingCache.timestamp = Date.now();
         await AsyncStorage.setItem(this.STORAGE_KEY_PENDING_CACHE, JSON.stringify(pendingCache));
-        console.log(`✅ Entrega ${deliveryId} removida do cache de pendentes`);
       }
+      
+      console.log(`✅ Entrega ${normalizedId} disponível novamente`);
     } catch (error) {
-      console.error('❌ Erro ao remover do cache de pendentes:', error);
+      console.error('❌ Erro ao desmarcar rejeição:', error);
     }
-    
-    console.log(`✅ Entrega ${deliveryId} disponível novamente`);
   }
 
   /**
@@ -716,17 +786,15 @@ class DeliveryPollingService {
       const id = String(deliveryId);
       console.log(`🗑️ Removendo entrega ${id} do storage local...`);
       
-      // Carrega todas as entregas
-      const allDeliveries = await this.loadAllDeliveriesFromStorage();
-      
-      // Storage all_deliveries foi removido - apenas limpa das rejeições
-      console.log(`⚠️ Storage all_deliveries foi removido - limpando apenas das rejeições`);
-      
-      // Remove das rejeições se existir
-      if (this.rejectedDeliveryIds.has(id)) {
-        this.rejectedDeliveryIds.delete(id);
-        await this.saveRejectedDeliveries();
-        console.log(`🗑️ Entrega ${id} removida das rejeições também`);
+      // Remove do cache de pendentes
+      const pendingData = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING_CACHE);
+      if (pendingData) {
+        const pendingCache = JSON.parse(pendingData);
+        pendingCache.deliveries = (pendingCache.deliveries || []).filter(
+          (d: any) => String(d.id) !== id
+        );
+        await AsyncStorage.setItem(this.STORAGE_KEY_PENDING_CACHE, JSON.stringify(pendingCache));
+        console.log(`🗑️ Entrega ${id} removida do cache de pendentes`);
       }
     } catch (error) {
       console.error(`❌ Erro ao remover entrega ${deliveryId} do storage:`, error);
@@ -802,15 +870,27 @@ class DeliveryPollingService {
   }
 
   /**
-   * Limpa histórico de entregas rejeitadas
+   * Limpa histórico de entregas rejeitadas (desmarcar todas como rejeitadas)
    */
-  clearRejectedHistory(): void {
-    this.rejectedDeliveryIds.clear();
-    console.log('🧹 Histórico de entregas rejeitadas limpo');
+  async clearRejectedHistory(): Promise<void> {
+    try {
+      const pendingData = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING_CACHE);
+      if (pendingData) {
+        const pendingCache = JSON.parse(pendingData);
+        // Desmarcar todas as entregas como rejeitadas
+        (pendingCache.deliveries || []).forEach((d: any) => {
+          d.locallyRejected = false;
+        });
+        await AsyncStorage.setItem(this.STORAGE_KEY_PENDING_CACHE, JSON.stringify(pendingCache));
+      }
+      console.log('🧹 Histórico de entregas rejeitadas limpo');
+    } catch (error) {
+      console.error('❌ Erro ao limpar histórico:', error);
+    }
   }
 
   /**
-   * Limpa TODOS os caches de entregas (ativas, concluídas, rejeitadas e do storage)
+   * Limpa TODOS os caches de entregas (ativas, concluídas, pendentes)
    * Deve ser chamado quando um novo usuário faz login
    */
   async clearAllDeliveryCaches(): Promise<void> {
@@ -819,20 +899,91 @@ class DeliveryPollingService {
       
       // Limpa cache em memória
       this.cachedDeliveries.clear();
-      this.rejectedDeliveryIds.clear();
       
       // Limpa cache no AsyncStorage
       await Promise.all([
         AsyncStorage.removeItem(this.STORAGE_KEY_ACTIVE_CACHE),
         AsyncStorage.removeItem(this.STORAGE_KEY_COMPLETED_CACHE),
-        AsyncStorage.removeItem(this.STORAGE_KEY_PENDING),
-        AsyncStorage.removeItem('deliveries'), // Cache principal de entregas
+        AsyncStorage.removeItem(this.STORAGE_KEY_PENDING_CACHE),
+        AsyncStorage.removeItem('deliveries'), // Cache principal de entregas (legado)
         AsyncStorage.removeItem('all_deliveries'), // Storage legado de entregas
+        AsyncStorage.removeItem('rejected_deliveries'), // Legado - migração
       ]);
       
       console.log('✅ Todos os caches de entregas foram limpos com sucesso');
     } catch (error) {
       console.error('❌ Erro ao limpar caches de entregas:', error);
+    }
+  }
+
+  /**
+   * Limpeza inteligente de caches no login:
+   * - Pendentes: Remove entregas com createdAt > 1 dia
+   * - Completadas: Mantém apenas entregas NÃO pagas (sem payments[].status === 'PAID')
+   * - Ativas: Limpa tudo (será recarregado do backend)
+   */
+  async cleanupCachesOnLogin(): Promise<void> {
+    try {
+      console.log('🧹 Iniciando limpeza inteligente de caches no login...');
+      
+      const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000); // 1 dia em ms
+      
+      // 1. Limpar cache de PENDENTES (remover > 1 dia)
+      const pendingData = await AsyncStorage.getItem(this.STORAGE_KEY_PENDING_CACHE);
+      if (pendingData) {
+        const pendingCache = JSON.parse(pendingData);
+        const originalCount = (pendingCache.deliveries || []).length;
+        
+        pendingCache.deliveries = (pendingCache.deliveries || []).filter((d: any) => {
+          if (!d.createdAt) return true; // Se não tem data, mantém
+          const createdTime = new Date(d.createdAt).getTime();
+          return createdTime > oneDayAgo; // Mantém se criada há menos de 1 dia
+        });
+        
+        const removedPending = originalCount - pendingCache.deliveries.length;
+        pendingCache.timestamp = Date.now();
+        await AsyncStorage.setItem(this.STORAGE_KEY_PENDING_CACHE, JSON.stringify(pendingCache));
+        console.log(`📋 Pendentes: ${removedPending} removidas (> 1 dia), ${pendingCache.deliveries.length} mantidas`);
+      }
+      
+      // 2. Limpar cache de COMPLETADAS (manter apenas não pagas)
+      const completedData = await AsyncStorage.getItem(this.STORAGE_KEY_COMPLETED_CACHE);
+      if (completedData) {
+        const completedCache = JSON.parse(completedData);
+        const originalCount = (completedCache.deliveries || []).length;
+        
+        completedCache.deliveries = (completedCache.deliveries || []).filter((d: any) => {
+          // Verifica se tem payments com status PAID
+          const payments = d.payments || [];
+          const isPaid = payments.some((p: any) => p.status === 'PAID');
+          return !isPaid; // Mantém apenas se NÃO foi paga
+        });
+        
+        const removedCompleted = originalCount - completedCache.deliveries.length;
+        completedCache.timestamp = Date.now();
+        await AsyncStorage.setItem(this.STORAGE_KEY_COMPLETED_CACHE, JSON.stringify(completedCache));
+        console.log(`✅ Completadas: ${removedCompleted} pagas removidas, ${completedCache.deliveries.length} não-pagas mantidas`);
+      }
+      
+      // 3. Limpar cache de ATIVAS (será recarregado do backend)
+      await AsyncStorage.removeItem(this.STORAGE_KEY_ACTIVE_CACHE);
+      console.log('🚚 Ativas: cache limpo (será recarregado do backend)');
+      
+      // 4. Limpar caches legados
+      await Promise.all([
+        AsyncStorage.removeItem('deliveries'),
+        AsyncStorage.removeItem('all_deliveries'),
+        AsyncStorage.removeItem('rejected_deliveries'),
+      ]);
+      
+      // 5. Limpar cache em memória
+      this.cachedDeliveries.clear();
+      
+      console.log('✅ Limpeza inteligente de caches concluída');
+    } catch (error) {
+      console.error('❌ Erro na limpeza de caches:', error);
+      // Em caso de erro, faz limpeza total como fallback
+      await this.clearAllDeliveryCaches();
     }
   }
 

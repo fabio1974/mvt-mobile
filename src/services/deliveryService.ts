@@ -31,12 +31,18 @@ class DeliveryService {
    * Novo endpoint dedicado: /deliveries/courier/completed
    * Backend já ordena por completedAt DESC
    * NOTA: Este endpoint retorna array direto, não paginado
+   * @param unpaidOnly - Se true, retorna apenas entregas não pagas
    */
-  async getMyCompletedDeliveries(): Promise<DeliveryResponse> {
+  async getMyCompletedDeliveries(unpaidOnly: boolean = true): Promise<DeliveryResponse> {
     try {
-      console.log('✅ Buscando minhas entregas completadas (novo endpoint courier/completed)...');
+      console.log(`✅ Buscando minhas entregas completadas (unpaidOnly=${unpaidOnly})...`);
 
-      const response = await apiClient.get<DeliveryEntity[]>('/deliveries/courier/completed');
+      const params: any = {};
+      if (unpaidOnly) {
+        params.unpaidOnly = true;
+      }
+
+      const response = await apiClient.get<DeliveryEntity[]>('/deliveries/courier/completed', { params });
       
       const deliveries = Array.isArray(response.data) ? response.data : [];
       console.log(`✅ ${deliveries.length} entregas completadas encontradas no backend`);
@@ -262,6 +268,10 @@ class DeliveryService {
       const { deliveryPollingService } = require('./deliveryPollingService');
       await deliveryPollingService.updateDeliveryInStorage(deliveryId, response.data);
       
+      // Invalida cache de entregas ativas (entrega não está mais ativa)
+      await deliveryPollingService.invalidateActiveCache();
+      console.log('🗑️ Cache de entregas ativas invalidado após completar entrega');
+      
       return {
         success: true,
         data: response.data,
@@ -305,6 +315,10 @@ class DeliveryService {
       // Remove do storage local (volta para PENDING sem courier)
       const { deliveryPollingService } = require('./deliveryPollingService');
       await deliveryPollingService.removeDeliveryFromStorage(deliveryId);
+      
+      // Invalida cache de entregas ativas (entrega não está mais ativa)
+      await deliveryPollingService.invalidateActiveCache();
+      console.log('🗑️ Cache de entregas ativas invalidado após cancelar entrega');
       
       return {
         success: true,

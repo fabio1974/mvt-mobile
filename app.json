@@ -2,7 +2,7 @@
   "expo": {
     "name": "Zapi10",
     "slug": "mvt-mobile",
-    "version": "1.0.2b",
+    "version": "1.0.2c",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -33,7 +33,7 @@
     },
     "android": {
       "package": "com.mvt.mobile.zapi10",
-      "versionCode": 34,
+      "versionCode": 36,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -78,7 +78,9 @@
       ],
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
-      "expo-font"
+      "@react-native-firebase/crashlytics",
+      "expo-font",
+      "./plugins/withFirebaseManifest"
     ],
     "extra": {
       "eas": {

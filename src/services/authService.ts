@@ -70,8 +70,11 @@ export class AuthService {
       await AsyncStorage.setItem('user', JSON.stringify(mappedUser));
       await apiClient.setAuthToken(token);
       
-      // Limpa cache de entregas para evitar vazamento de dados entre contas
-      await deliveryPollingService.clearAllDeliveryCaches();
+      // Limpeza inteligente de caches no login:
+      // - Pendentes: remove > 1 dia
+      // - Completadas: mantém apenas não-pagas
+      // - Ativas: limpa tudo (recarrega do backend)
+      await deliveryPollingService.cleanupCachesOnLogin();
 
       // Atualiza flag local de conta bancária ativa (não bloqueia login se falhar)
       try {

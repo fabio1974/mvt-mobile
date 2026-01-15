@@ -14,11 +14,17 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE, LatLng as MapLatLng } from "react-native-maps";
 import { deliveryService } from "../../services/deliveryService";
 import { deliveryPollingService, PendingDelivery } from "../../services/deliveryPollingService";
 import { unifiedLocationService } from "../../services/unifiedLocationService";
+import { routeService } from "../../services/routeService";
 import ENV from "../../config/env";
+
+interface LatLng {
+  latitude: number;
+  longitude: number;
+}
 
 interface ActiveDeliveryScreenProps {
   deliveryId: string;
@@ -48,6 +54,11 @@ export default function ActiveDeliveryScreen({
   const [fullscreenMap, setFullscreenMap] = useState(false);
   const mapRef = useRef<MapView>(null);
   const fullscreenMapRef = useRef<MapView>(null);
+  
+  // Estado para rotas reais do Google Directions
+  const [routeToOrigin, setRouteToOrigin] = useState<LatLng[]>([]);
+  const [routeToDestination, setRouteToDestination] = useState<LatLng[]>([]);
+  const [mainRoute, setMainRoute] = useState<LatLng[]>([]); // Origem → Destino
 
   useEffect(() => {
     loadDelivery();
@@ -141,38 +152,115 @@ export default function ActiveDeliveryScreen({
     }, 500);
   }, [fullscreenMap, delivery, courierLocation]);
 
+  // Busca rotas reais do Google Directions
+  useEffect(() => {
+    const fetchRoutes = async () => {
+      if (!delivery?.fromLatitude || !delivery?.fromLongitude || 
+          !delivery?.toLatitude || !delivery?.toLongitude) {
+        return;
+      }
+
+      const origin = { latitude: delivery.fromLatitude, longitude: delivery.fromLongitude };
+      const destination = { latitude: delivery.toLatitude, longitude: delivery.toLongitude };
+
+      // Busca rota principal (Origem → Destino)
+      const mainRouteResult = await routeService.getRoute(origin, destination);
+      if (mainRouteResult.success && mainRouteResult.coordinates) {
+        setMainRoute(mainRouteResult.coordinates);
+        console.log(`🗺️ Rota principal carregada: ${mainRouteResult.distance}, ${mainRouteResult.duration}`);
+      }
+    };
+
+    fetchRoutes();
+  }, [delivery?.fromLatitude, delivery?.fromLongitude, delivery?.toLatitude, delivery?.toLongitude]);
+
+  // Busca rota do motoboy até o próximo ponto
+  useEffect(() => {
+    const fetchCourierRoute = async () => {
+      if (!courierLocation || !delivery) return;
+      
+      const currentStatus = delivery.status || 'ACCEPTED';
+      if (currentStatus === 'COMPLETED' || currentStatus === 'CANCELLED') return;
+
+      const courierPos = { latitude: courierLocation.latitude, longitude: courierLocation.longitude };
+      
+      // Se ainda não coletou, rota até origem. Senão, até destino
+      if (currentStatus === 'ACCEPTED') {
+        const origin = { latitude: delivery.fromLatitude, longitude: delivery.fromLongitude };
+        const result = await routeService.getRoute(courierPos, origin);
+        if (result.success && result.coordinates) {
+          setRouteToOrigin(result.coordinates);
+        }
+      } else {
+        const destination = { latitude: delivery.toLatitude, longitude: delivery.toLongitude };
+        const result = await routeService.getRoute(courierPos, destination);
+        if (result.success && result.coordinates) {
+          setRouteToDestination(result.coordinates);
+        }
+      }
+    };
+
+    // Busca rota do motoboy a cada 30 segundos (não a cada atualização de localização)
+    fetchCourierRoute();
+    const routeInterval = setInterval(fetchCourierRoute, 30000);
+    
+    return () => clearInterval(routeInterval);
+  }, [courierLocation?.latitude, courierLocation?.longitude, delivery?.status]);
+
   const loadDelivery = async () => {
     try {
       setLoading(true);
       console.log(`🔍 Carregando detalhes da entrega ${deliveryId}...`);
       
-      // 🔄 SINCRONIZA COM BACKEND PRIMEIRO (para garantir dados atualizados)
+      let foundDelivery = null;
+      
+      // 🔄 TENTA BUSCAR DO BACKEND PRIMEIRO (dados mais atualizados)
       try {
         const { deliveryService } = require('../../services/deliveryService');
         const backendResponse = await deliveryService.getDeliveryById(deliveryId);
         
         if (backendResponse.success && backendResponse.data) {
           console.log(`🌐 Dados do backend recebidos - Status: ${backendResponse.data.status}`);
-          // Atualiza no storage com dados do backend
-          await deliveryPollingService.updateDeliveryInStorage(deliveryId, backendResponse.data);
+          foundDelivery = {
+            ...backendResponse.data,
+            id: backendResponse.data.id,
+            pickupAddress: backendResponse.data.fromAddress || backendResponse.data.pickupAddress || 'Endereço não informado',
+            dropoffAddress: backendResponse.data.toAddress || backendResponse.data.dropoffAddress || 'Endereço não informado',
+            distance: backendResponse.data.distance || 0,
+            estimatedPayment: backendResponse.data.totalAmount || backendResponse.data.estimatedPayment || 0,
+          };
         }
       } catch (syncError) {
-        console.log('⚠️ Falha ao sincronizar com backend (continuando com cache):', syncError);
+        console.log('⚠️ Falha ao buscar do backend (tentando cache):', syncError);
       }
       
-      // Busca do cache de entregas ativas
-      const activeDeliveries = await deliveryPollingService.getMyActiveDeliveries(false);
-      const found = activeDeliveries.find(d => d.id === deliveryId);
+      // Se não encontrou no backend, busca nos caches locais
+      if (!foundDelivery) {
+        // Tenta no cache de ativas
+        const activeDeliveries = await deliveryPollingService.getMyActiveDeliveries(false);
+        foundDelivery = activeDeliveries.find(d => String(d.id) === String(deliveryId));
+        
+        if (!foundDelivery) {
+          // Tenta no cache de pendentes
+          const pendingDeliveries = await deliveryPollingService.getPendingDeliveries();
+          foundDelivery = pendingDeliveries.find(d => String(d.id) === String(deliveryId));
+        }
+        
+        if (!foundDelivery) {
+          // Tenta no cache de completadas
+          const completedDeliveries = await deliveryPollingService.getMyCompletedDeliveries(false);
+          foundDelivery = completedDeliveries.find(d => String(d.id) === String(deliveryId));
+        }
+      }
       
-      if (found) {
-        console.log(`✅ Entrega ${deliveryId} carregada do cache de ativas:`, found.status);
-        console.log(`📦 Detalhes completos:`, JSON.stringify(found, null, 2));
-        setDelivery(found);
+      if (foundDelivery) {
+        console.log(`✅ Entrega ${deliveryId} carregada - Status: ${foundDelivery.status}`);
+        setDelivery(foundDelivery);
       } else {
-        console.error(`❌ Entrega ${deliveryId} não encontrada no cache de ativas`);
+        console.error(`❌ Entrega ${deliveryId} não encontrada em nenhum cache`);
         Alert.alert(
           "Erro", 
-          "Entrega não encontrada no cache de ativas. Tente atualizar a lista.",
+          "Entrega não encontrada. Tente atualizar a lista.",
           [{ text: "OK", onPress: () => onBack() }]
         );
       }
@@ -366,6 +454,7 @@ export default function ActiveDeliveryScreen({
     if (!dateString) return '-';
     const date = new Date(dateString);
     return date.toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -414,13 +503,62 @@ export default function ActiveDeliveryScreen({
     );
   }
 
+  // Gera pontos de setas ao longo da rota com espaçamento baseado no zoom
+  const generateArrowPoints = (route: LatLng[], spacingKm: number = 0.5): { coordinate: LatLng; rotation: number }[] => {
+    if (route.length < 2) return [];
+    
+    const arrows: { coordinate: LatLng; rotation: number }[] = [];
+    let accumulatedDistance = 0;
+    
+    for (let i = 1; i < route.length; i++) {
+      const prev = route[i - 1];
+      const curr = route[i];
+      
+      // Calcula distância entre pontos
+      const segmentDistance = calculateDistance(
+        prev.latitude, prev.longitude,
+        curr.latitude, curr.longitude
+      );
+      
+      accumulatedDistance += segmentDistance;
+      
+      // Adiciona seta a cada 'spacingKm' km
+      if (accumulatedDistance >= spacingKm) {
+        // Calcula ângulo de rotação (direção do movimento)
+        const deltaLat = curr.latitude - prev.latitude;
+        const deltaLng = curr.longitude - prev.longitude;
+        const rotation = Math.atan2(deltaLng, deltaLat) * (180 / Math.PI);
+        
+        arrows.push({
+          coordinate: curr,
+          rotation: rotation
+        });
+        
+        accumulatedDistance = 0;
+      }
+    }
+    
+    return arrows;
+  };
+
   // Função auxiliar para renderizar os marcadores e rotas do mapa
   const renderMapContent = () => {
     if (!delivery) return null;
+    
+    const isCompleted = currentStatus === 'COMPLETED' || currentStatus === 'CANCELLED';
+    
+    // Gera setas para a rota principal com espaçamento de 0.3km
+    const routeCoordinates = mainRoute.length > 0 
+      ? mainRoute 
+      : [
+          { latitude: delivery.fromLatitude, longitude: delivery.fromLongitude },
+          { latitude: delivery.toLatitude, longitude: delivery.toLongitude },
+        ];
+    const arrowPoints = generateArrowPoints(routeCoordinates, 0.3);
 
     return (
       <>
-        {/* Marcador de Origem */}
+        {/* Marcador de Origem - Bandeirinha Verde */}
         <Marker
           coordinate={{
             latitude: delivery.fromLatitude,
@@ -428,13 +566,15 @@ export default function ActiveDeliveryScreen({
           }}
           title="Origem"
           description={delivery.pickupAddress}
+          anchor={{ x: 0.1, y: 1 }}
         >
-          <View style={styles.originMarker}>
-            <Text style={styles.markerText}>📍</Text>
+          <View style={styles.flagContainer}>
+            <View style={styles.flagPole} />
+            <View style={styles.flagGreen} />
           </View>
         </Marker>
         
-        {/* Marcador de Destino */}
+        {/* Marcador de Destino - Bandeirinha Vermelha */}
         <Marker
           coordinate={{
             latitude: delivery.toLatitude,
@@ -442,14 +582,16 @@ export default function ActiveDeliveryScreen({
           }}
           title="Destino"
           description={delivery.dropoffAddress}
+          anchor={{ x: 0.1, y: 1 }}
         >
-          <View style={styles.destinationMarker}>
-            <Text style={styles.markerText}>🎯</Text>
+          <View style={styles.flagContainer}>
+            <View style={styles.flagPole} />
+            <View style={styles.flagRed} />
           </View>
         </Marker>
         
-        {/* Marcador do Motoboy - Só mostra se não está concluída/cancelada */}
-        {courierLocation && currentStatus !== 'COMPLETED' && currentStatus !== 'CANCELLED' && (
+        {/* Marcador do Motoboy - Só mostra se NÃO está concluída/cancelada */}
+        {courierLocation && !isCompleted && (
           <Marker
             coordinate={{
               latitude: courierLocation.latitude,
@@ -464,46 +606,27 @@ export default function ActiveDeliveryScreen({
           </Marker>
         )}
         
-        {/* Linha da Rota Planejada (Origem → Destino) */}
+        {/* Rota Principal (Origem → Destino) - AZUL */}
         <Polyline
-          coordinates={[
-            {
-              latitude: delivery.fromLatitude,
-              longitude: delivery.fromLongitude,
-            },
-            {
-              latitude: delivery.toLatitude,
-              longitude: delivery.toLongitude,
-            },
-          ]}
-          strokeColor="#94a3b8"
-          strokeWidth={2}
-          lineDashPattern={[10, 5]}
+          coordinates={routeCoordinates}
+          strokeColor="#3b82f6"
+          strokeWidth={4}
         />
         
-        {/* Linha da Rota do Motoboy até o Próximo Ponto - Só mostra se não está concluída/cancelada */}
-        {courierLocation && currentStatus !== 'COMPLETED' && currentStatus !== 'CANCELLED' && (
-          <Polyline
-            coordinates={[
-              {
-                latitude: courierLocation.latitude,
-                longitude: courierLocation.longitude,
-              },
-              // Se ainda não coletou, vai para origem. Senão, vai para destino
-              currentStatus === 'ACCEPTED' 
-                ? {
-                    latitude: delivery.fromLatitude,
-                    longitude: delivery.fromLongitude,
-                  }
-                : {
-                    latitude: delivery.toLatitude,
-                    longitude: delivery.toLongitude,
-                  }
-            ]}
-            strokeColor="#e94560"
-            strokeWidth={3}
-          />
-        )}
+        {/* Setas azuis ao longo da rota */}
+        {arrowPoints.map((arrow, index) => (
+          <Marker
+            key={`arrow-${index}`}
+            coordinate={arrow.coordinate}
+            anchor={{ x: 0.5, y: 0.5 }}
+            flat={true}
+            tracksViewChanges={false}
+          >
+            <View style={[styles.arrowMarker, { transform: [{ rotate: `${arrow.rotation}deg` }] }]}>
+              <Text style={styles.arrowText}>▲</Text>
+            </View>
+          </Marker>
+        ))}
       </>
     );
   };
@@ -927,44 +1050,53 @@ const styles = StyleSheet.create({
   courierMarkerText: {
     fontSize: 24,
   },
-  originMarker: {
-    backgroundColor: "#3b82f6",
-    borderRadius: 20,
-    width: 36,
-    height: 36,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "#ffffff",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+  arrowMarker: {
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  destinationMarker: {
-    backgroundColor: "#10b981",
-    borderRadius: 20,
-    width: 36,
-    height: 36,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "#ffffff",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+  arrowText: {
+    color: '#3b82f6',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
-  markerText: {
-    fontSize: 20,
+  flagContainer: {
+    width: 40,
+    height: 50,
+  },
+  flagGreen: {
+    position: 'absolute',
+    top: 2,
+    left: 4,
+    width: 28,
+    height: 18,
+    backgroundColor: '#10b981',
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
+    borderWidth: 1,
+    borderColor: '#059669',
+  },
+  flagRed: {
+    position: 'absolute',
+    top: 2,
+    left: 4,
+    width: 28,
+    height: 18,
+    backgroundColor: '#ef4444',
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
+    borderWidth: 1,
+    borderColor: '#dc2626',
+  },
+  flagPole: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 4,
+    height: 50,
+    backgroundColor: '#374151',
+    borderRadius: 2,
   },
   section: {
     backgroundColor: "#1a1a2e",
