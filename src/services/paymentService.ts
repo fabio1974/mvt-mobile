@@ -1,0 +1,209 @@
+import { apiClient } from './api';
+
+/**
+ * Interface para pagador
+ */
+export interface Payer {
+  id: string;
+  name: string;
+}
+
+/**
+ * Interface para um item de pagamento na lista
+ */
+export interface PaymentItem {
+  id: number;
+  providerPaymentId: string;
+  payer: Payer;
+  pixQrCode: string;
+  pixQrCodeUrl: string;
+  amount: number;
+  status: string;
+  expiresAt: string | null;
+  createdAt: string;
+  paymentDate: string | null;
+  deliveryId: number;
+  clientEmail: string;
+  expired: boolean;
+  statusMessage: string;
+}
+
+/**
+ * Interface para resposta paginada de pagamentos
+ */
+export interface PaymentsResponse {
+  content: PaymentItem[];
+  totalPages: number;
+  totalElements: number;
+  size: number;
+  number: number;
+  first: boolean;
+  last: boolean;
+  empty: boolean;
+}
+
+/**
+ * Interface para split de um recipient
+ */
+export interface SplitItem {
+  recipientId: string;
+  recipientName: string;
+  recipientRole: string;
+  amount: number;
+  percentage: number;
+  liable: boolean;
+}
+
+/**
+ * Interface para entrega no relatório
+ */
+export interface ReportDelivery {
+  deliveryId: number;
+  shippingFee: number;
+  clientName: string;
+  pickupAddress: string;
+  deliveryAddress: string;
+  splits: SplitItem[];
+}
+
+/**
+ * Interface para relatório de pagamento
+ */
+export interface PaymentReport {
+  paymentId: number;
+  providerPaymentId: string;
+  status: string;
+  totalAmount: number;
+  currency: string;
+  createdAt: string;
+  pixQrCode: string;
+  pixQrCodeUrl: string;
+  expiresAt: string | null;
+  deliveries: ReportDelivery[];
+  consolidatedSplits: SplitItem[];
+}
+
+/**
+ * Interface de resposta genérica
+ */
+interface ServiceResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
+
+class PaymentService {
+  /**
+   * Busca lista paginada de pagamentos do cliente logado
+   * GET /payments?page=0&size=10
+   */
+  async getPayments(page: number = 0, size: number = 10): Promise<ServiceResponse<PaymentsResponse>> {
+    try {
+      console.log(`💰 Buscando pagamentos (página ${page}, tamanho ${size})...`);
+      
+      const response = await apiClient.get<PaymentsResponse>(`/payments?page=${page}&size=${size}`);
+      
+      console.log('✅ Pagamentos carregados:', response.data?.content?.length || 0);
+      
+      return {
+        success: true,
+        data: response.data,
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao buscar pagamentos:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message || 'Erro ao buscar pagamentos',
+      };
+    }
+  }
+
+  /**
+   * Busca relatório detalhado de um pagamento
+   * GET /payments/{id}/report
+   */
+  async getPaymentReport(paymentId: number): Promise<ServiceResponse<PaymentReport>> {
+    try {
+      console.log(`📊 Buscando relatório do pagamento #${paymentId}...`);
+      
+      const response = await apiClient.get<PaymentReport>(`/payments/${paymentId}/report`);
+      
+      console.log('✅ Relatório carregado:', response.data);
+      
+      return {
+        success: true,
+        data: response.data,
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao buscar relatório:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message || 'Erro ao buscar relatório',
+      };
+    }
+  }
+
+  /**
+   * Formata valor monetário em BRL
+   */
+  formatCurrency(value: number): string {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    }).format(value);
+  }
+
+  /**
+   * Formata data para exibição
+   */
+  formatDate(dateString: string): string {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return dateString;
+    }
+  }
+
+  /**
+   * Retorna cor do badge baseado no status
+   */
+  getStatusColor(status: string): { bg: string; text: string } {
+    const statusColors: Record<string, { bg: string; text: string }> = {
+      PENDING: { bg: '#fef3c7', text: '#d97706' },
+      PENDENTE: { bg: '#fef3c7', text: '#d97706' },
+      PAID: { bg: '#d1fae5', text: '#059669' },
+      PAGO: { bg: '#d1fae5', text: '#059669' },
+      COMPLETED: { bg: '#d1fae5', text: '#059669' },
+      CANCELLED: { bg: '#fee2e2', text: '#dc2626' },
+      CANCELADO: { bg: '#fee2e2', text: '#dc2626' },
+      FAILED: { bg: '#fee2e2', text: '#dc2626' },
+    };
+    
+    return statusColors[status.toUpperCase()] || { bg: '#f3f4f6', text: '#6b7280' };
+  }
+
+  /**
+   * Traduz status para português
+   */
+  translateStatus(status: string): string {
+    const translations: Record<string, string> = {
+      PENDING: 'Pendente',
+      PAID: 'Pago',
+      COMPLETED: 'Concluído',
+      CANCELLED: 'Cancelado',
+      FAILED: 'Falhou',
+    };
+    
+    return translations[status.toUpperCase()] || status;
+  }
+}
+
+export const paymentService = new PaymentService();
+export default PaymentService;

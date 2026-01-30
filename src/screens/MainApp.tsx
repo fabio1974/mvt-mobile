@@ -28,10 +28,15 @@ import { deliveryService } from "../services/deliveryService";
 import { userLocationService } from "../services/userLocationService";
 import AvailableRidesScreen from "./delivery/AvailableRidesScreen";
 import ActiveDeliveryScreen from "./delivery/ActiveDeliveryScreen";
+import CreateDeliveryScreen from "./delivery/CreateDeliveryScreen";
+import PaymentsScreen from "./payment/PaymentsScreen";
 import BankAccountScreen from "./BankAccountScreen";
 import RideInviteModal from "../components/delivery/RideInviteModal";
+import CreateDeliveryModal from "../components/delivery/CreateDeliveryModal";
 import GradientText from "../components/GradientText";
 import SideMenu from "../components/SideMenu";
+import MyGroupScreen from "./group/MyGroupScreen";
+import MyClientsScreen from "./clients/MyClientsScreen";
 import ENV from "../config/env";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -48,7 +53,7 @@ interface MainAppProps {
   onLogout: () => void;
 }
 
-type Screen = "dashboard" | "available-rides" | "active-ride" | "bank-account";
+type Screen = "dashboard" | "available-rides" | "active-ride" | "bank-account" | "create-delivery" | "payments" | "my-group" | "my-clients";
 
 export default function MainApp({ user, onLogout }: MainAppProps) {
   const insets = useSafeAreaInsets();
@@ -67,6 +72,7 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
   const [hasActiveDelivery, setHasActiveDelivery] = useState(false);
   const [showSideMenu, setShowSideMenu] = useState(false);
   const [showLocationModal, setShowLocationModal] = useState(false);
+  const [showCreateDeliveryModal, setShowCreateDeliveryModal] = useState(false);
   const [userLocation, setUserLocation] = useState<{latitude: number; longitude: number} | null>(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -117,6 +123,8 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
   // Verifica se o usuário é entregador
   const userRole = user?.role?.toUpperCase() || "";
   const isDelivery = userRole === "COURIER";
+  const isClient = userRole === "CLIENT";
+  const isOrganizer = userRole === "ORGANIZER";
 
   // Determina a saudação baseada no gênero
   const getGreeting = () => {
@@ -705,6 +713,48 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     );
   }
 
+  if (currentScreen === "create-delivery") {
+    return (
+      <>
+        <CreateDeliveryScreen
+          onBack={handleBackToDashboard}
+          onSuccess={(delivery) => {
+            console.log("✅ Entrega criada com sucesso:", delivery?.id);
+            handleBackToDashboard();
+          }}
+        />
+        <GlobalModals />
+      </>
+    );
+  }
+
+  if (currentScreen === "payments") {
+    return (
+      <>
+        <PaymentsScreen onBack={handleBackToDashboard} />
+        <GlobalModals />
+      </>
+    );
+  }
+
+  if (currentScreen === "my-group") {
+    return (
+      <>
+        <MyGroupScreen onBack={handleBackToDashboard} />
+        <GlobalModals />
+      </>
+    );
+  }
+
+  if (currentScreen === "my-clients") {
+    return (
+      <>
+        <MyClientsScreen onBack={handleBackToDashboard} />
+        <GlobalModals />
+      </>
+    );
+  }
+
   // Dashboard principal
   return (
     <SafeAreaView style={styles.container}>
@@ -745,7 +795,7 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
           </Text>
           <Text style={styles.welcomeSubtitle}>Email: {user?.email}</Text>
           <Text style={styles.welcomeSubtitle}>
-            Perfil: {user?.role?.toUpperCase() === "COURIER" ? "Motoboy" : user?.role}
+            Perfil: {isDelivery ? "Motoboy 🏍️" : isOrganizer ? "Gerente 👔" : isClient ? "Cliente 📦" : user?.role}
           </Text>
           <TouchableOpacity onPress={handleOpenLocationModal} style={styles.locationRow}>
             <Text style={styles.welcomeSubtitle}>
@@ -839,8 +889,90 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
                 </Text>
               </TouchableOpacity>
             </>
+          ) : isClient ? (
+            // Features para usuários CLIENT - podem criar entregas
+            <>
+              <TouchableOpacity 
+                style={[styles.featureCard, { backgroundColor: "#10b981" }]}
+                onPress={() => setCurrentScreen("create-delivery")}
+              >
+                <Text style={styles.featureIcon}>➕</Text>
+                <Text style={[styles.featureTitle, { color: "#fff" }]}>Criar Nova Entrega</Text>
+                <Text style={[styles.featureDescription, { color: "#f0fdf4" }]}>
+                  Solicite um motoboy para sua entrega
+                </Text>
+              </TouchableOpacity>
+
+              <View style={styles.featureCard}>
+                <Text style={styles.featureIcon}>📦</Text>
+                <Text style={styles.featureTitle}>Minhas Entregas</Text>
+                <Text style={styles.featureDescription}>
+                  Acompanhe suas entregas solicitadas
+                </Text>
+              </View>
+
+              <View style={styles.featureCard}>
+                <Text style={styles.featureIcon}>🗺️</Text>
+                <Text style={styles.featureTitle}>Mapa</Text>
+                <Text style={styles.featureDescription}>
+                  Visualize rotas e localizações
+                </Text>
+              </View>
+
+              <TouchableOpacity 
+                style={[styles.featureCard, { backgroundColor: "#7c3aed" }]}
+                onPress={() => setCurrentScreen("payments")}
+              >
+                <Text style={styles.featureIcon}>💳</Text>
+                <Text style={[styles.featureTitle, { color: "#fff" }]}>Pagamentos</Text>
+                <Text style={[styles.featureDescription, { color: "#e9d5ff" }]}>
+                  Veja seus pagamentos e QR Codes
+                </Text>
+              </TouchableOpacity>
+            </>
+          ) : isOrganizer ? (
+            // Features para usuários ORGANIZER - gerenciam grupos de motoboys
+            <>
+              <TouchableOpacity 
+                style={[styles.featureCard, { backgroundColor: "#7c3aed" }]}
+                onPress={() => setCurrentScreen("my-group")}
+              >
+                <Text style={styles.featureIcon}>👥</Text>
+                <Text style={[styles.featureTitle, { color: "#fff" }]}>Meu Grupo</Text>
+                <Text style={[styles.featureDescription, { color: "#e9d5ff" }]}>
+                  Gerencie seus motoboys
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.featureCard, { backgroundColor: "#10b981" }]}
+                onPress={() => setCurrentScreen("my-clients")}
+              >
+                <Text style={styles.featureIcon}>🏢</Text>
+                <Text style={[styles.featureTitle, { color: "#fff" }]}>Meus Clientes</Text>
+                <Text style={[styles.featureDescription, { color: "#f0fdf4" }]}>
+                  Gerencie seus clientes
+                </Text>
+              </TouchableOpacity>
+
+              <View style={styles.featureCard}>
+                <Text style={styles.featureIcon}>📦</Text>
+                <Text style={styles.featureTitle}>Entregas</Text>
+                <Text style={styles.featureDescription}>
+                  Acompanhe entregas do grupo
+                </Text>
+              </View>
+
+              <View style={styles.featureCard}>
+                <Text style={styles.featureIcon}>📊</Text>
+                <Text style={styles.featureTitle}>Relatórios</Text>
+                <Text style={styles.featureDescription}>
+                  Métricas e performance do grupo
+                </Text>
+              </View>
+            </>
           ) : (
-            // Features padrão para outros usuários
+            // Features padrão para outros usuários (ADMIN, etc)
             <>
               <View style={styles.featureCard}>
                 <Text style={styles.featureIcon}>📦</Text>
@@ -894,6 +1026,16 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
         onReject={handleRideInviteReject}
         onClose={handleRideInviteClose}
         autoCloseTimer={30}
+      />
+
+      {/* Modal de criar nova entrega (para CLIENT) */}
+      <CreateDeliveryModal
+        visible={showCreateDeliveryModal}
+        onClose={() => setShowCreateDeliveryModal(false)}
+        onSuccess={(delivery) => {
+          console.log("✅ Entrega criada:", delivery);
+          setShowCreateDeliveryModal(false);
+        }}
       />
 
       {/* Botão flutuante para abrir menu de testes */}

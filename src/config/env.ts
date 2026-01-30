@@ -4,8 +4,9 @@
 const __DEV__ = process.env.NODE_ENV !== 'production';
 
 export const ENV = {
-  // API - apontando para produção (Render)
-  API_URL: 'https://mvt-events-api.onrender.com/api',  // Produção
+  // API - apontando para backend LOCAL
+  API_URL: 'http://192.168.18.43:8080/api',  // Local - IP: 192.168.18.43 (ATIVO)
+  // API_URL: 'https://mvt-events-api.onrender.com/api',  // Produção (comentado)
   
   // Google Maps
   GOOGLE_MAPS_API_KEY: 'AIzaSyBpJ-PEX_eQunOFbDXKLC3Xr3q69xoROmU',

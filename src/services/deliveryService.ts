@@ -505,6 +505,68 @@ class DeliveryService {
       )
     };
   }
+
+  /**
+   * Cria uma nova entrega (usado por clientes CLIENT)
+   * POST /deliveries
+   */
+  async createDelivery(deliveryData: {
+    status: string;
+    payments: any[];
+    client: string;
+    itemDescription: string;
+    recipientName: string;
+    recipientPhone: string;
+    fromAddress: string;
+    fromLatitude?: number | null;
+    fromLongitude?: number | null;
+    toAddress: string;
+    toLatitude?: number | null;
+    toLongitude?: number | null;
+    totalAmount: string;
+    distanceKm?: number | null;
+  }): Promise<DeliveryResponse> {
+    try {
+      console.log('📦 Criando nova entrega via POST /deliveries...');
+      console.log('📋 Dados:', JSON.stringify(deliveryData, null, 2));
+
+      // Monta o corpo da requisição no formato esperado pela API
+      const requestBody = {
+        status: deliveryData.status || "PENDING",
+        payments: deliveryData.payments || [],
+        client: deliveryData.client,
+        itemDescription: deliveryData.itemDescription,
+        recipientName: deliveryData.recipientName,
+        recipientPhone: deliveryData.recipientPhone,
+        fromAddress: deliveryData.fromAddress,
+        fromLatitude: deliveryData.fromLatitude,
+        fromLongitude: deliveryData.fromLongitude,
+        toAddress: deliveryData.toAddress,
+        toLatitude: deliveryData.toLatitude,
+        toLongitude: deliveryData.toLongitude,
+        totalAmount: deliveryData.totalAmount,
+        distanceKm: deliveryData.distanceKm,
+      };
+
+      const response = await apiClient.post<DeliveryEntity>('/deliveries', requestBody);
+
+      console.log('✅ Entrega criada com sucesso!');
+      console.log('📋 Entrega criada:', response.data);
+
+      return {
+        success: true,
+        data: response.data,
+        message: 'Entrega criada com sucesso!'
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao criar entrega:', error);
+      console.error('❌ Response data:', error.response?.data);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message || 'Erro ao criar entrega'
+      };
+    }
+  }
 }
 
 // Exporta instância singleton
