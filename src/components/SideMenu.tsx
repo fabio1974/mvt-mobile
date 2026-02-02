@@ -27,9 +27,13 @@ interface SideMenuProps {
   };
   onLogout: () => void;
   onShowBankAccount?: () => void;
+  onShowWithdrawalSettings?: () => void;
+  onShowChangePassword?: () => void;
+  onShowUserData?: () => void;
 }
 
-export default function SideMenu({ visible, onClose, user, onLogout, onShowBankAccount }: SideMenuProps) {
+export default function SideMenu({ visible, onClose, user, onLogout, onShowBankAccount, onShowWithdrawalSettings, onShowChangePassword, onShowUserData }: SideMenuProps) {
+  console.log('SideMenu render - visible:', visible, 'user:', user?.name);
   const slideAnim = React.useRef(new Animated.Value(-MENU_WIDTH)).current;
   const panResponder = React.useRef(
     PanResponder.create({
@@ -66,6 +70,7 @@ export default function SideMenu({ visible, onClose, user, onLogout, onShowBankA
   ).current;
 
   React.useEffect(() => {
+    console.log('SideMenu visible changed:', visible);
     if (visible) {
       Animated.spring(slideAnim, {
         toValue: 0,
@@ -93,20 +98,54 @@ export default function SideMenu({ visible, onClose, user, onLogout, onShowBankA
   };
 
   const menuItems = [
-    { icon: 'person-outline', label: 'Dados do Usuário', onPress: () => console.log('Dados do Usuário') },
-    { icon: 'lock-closed-outline', label: 'Mudar Senha', onPress: () => console.log('Mudar Senha') },
+    { 
+      icon: 'person-outline', 
+      label: 'Dados do Usuário', 
+      onPress: () => {
+        if (onShowUserData) {
+          onShowUserData();
+        }
+      }
+    },
+    { 
+      icon: 'lock-closed-outline', 
+      label: 'Alterar Senha', 
+      onPress: () => {
+        if (onShowChangePassword) {
+          onShowChangePassword();
+        }
+      }
+    },
     { 
       icon: 'card-outline', 
-      label: 'Dados Bancários', 
+      label: 'Dados Bancários',
+      requiresRole: ['COURIER', 'MANAGER'], 
       onPress: () => {
         if (onShowBankAccount) {
           onShowBankAccount();
         }
       }
     },
+    { 
+      icon: 'wallet-outline', 
+      label: 'Configuração de Saque',
+      requiresRole: ['COURIER', 'MANAGER'], 
+      onPress: () => {
+        if (onShowWithdrawalSettings) {
+          onShowWithdrawalSettings();
+        }
+      }
+    },
     { icon: 'help-circle-outline', label: 'Ajuda e Suporte', onPress: () => console.log('Ajuda') },
     { icon: 'settings-outline', label: 'Configurações', onPress: () => console.log('Configurações') },
   ];
+
+  // Filtrar itens do menu baseado no role do usuário
+  const filteredMenuItems = menuItems.filter(item => {
+    if (!item.requiresRole) return true;
+    const userRole = user.role?.toUpperCase();
+    return item.requiresRole.includes(userRole || '');
+  });
 
   return (
     <Modal
@@ -143,7 +182,7 @@ export default function SideMenu({ visible, onClose, user, onLogout, onShowBankA
 
             {/* Menu items */}
             <View style={styles.menuItems}>
-              {menuItems.map((item, index) => (
+              {filteredMenuItems.map((item, index) => (
                 <TouchableOpacity
                   key={index}
                   style={styles.menuItem}

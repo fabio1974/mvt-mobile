@@ -1,4 +1,24 @@
 import { apiClient } from './api';
+import { CreditCard, PaymentMethodType, CardBrand, AddCardRequest } from '../types/payment';
+
+/**
+ * Interface para criação de cartão
+ */
+export interface CreateCardRequest {
+  cardNumber: string;
+  cardHolderName: string;
+  expiryMonth: string;
+  expiryYear: string;
+  cvv: string;
+}
+
+/**
+ * Interface para preferência de pagamento
+ */
+export interface PaymentPreferenceRequest {
+  preferredMethod: PaymentMethodType;
+  selectedCardId?: string;
+}
 
 /**
  * Interface para pagador
@@ -202,6 +222,55 @@ class PaymentService {
     };
     
     return translations[status.toUpperCase()] || status;
+  }
+
+  // ==================== MÉTODOS DE CARTÃO DE CRÉDITO ====================
+
+  /**
+   * Buscar todos os cartões do usuário
+   */
+  async getCreditCards(): Promise<CreditCard[]> {
+    const response = await apiClient.get('/customer-cards');
+    return response.data;
+  }
+
+  /**
+   * Adicionar novo cartão (já tokenizado)
+   */
+  async addCreditCard(request: AddCardRequest): Promise<CreditCard> {
+    const response = await apiClient.post('/customer-cards', request);
+    return response.data;
+  }
+
+  /**
+   * Busca cartão padrão
+   */
+  async getDefaultCard(): Promise<CreditCard> {
+    const response = await apiClient.get('/customer-cards/default');
+    return response.data;
+  }
+
+  /**
+   * Deletar cartão
+   */
+  async deleteCreditCard(cardId: number): Promise<void> {
+    await apiClient.delete(`/customer-cards/${cardId}`);
+  }
+
+  /**
+   * Definir cartão padrão
+   */
+  async setDefaultCard(cardId: number): Promise<CreditCard> {
+    const response = await apiClient.put(`/customer-cards/${cardId}/set-default`);
+    return response.data;
+  }
+
+  /**
+   * Verifica se tem cartões cadastrados
+   */
+  async hasCards(): Promise<boolean> {
+    const response = await apiClient.get<{ hasCards: boolean }>('/customer-cards/has-cards');
+    return response.data.hasCards;
   }
 }
 

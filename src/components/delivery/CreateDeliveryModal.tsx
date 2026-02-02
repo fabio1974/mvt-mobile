@@ -40,7 +40,7 @@ export default function CreateDeliveryModal({
   visible,
   onClose,
   onSuccess,
-}: CreateDeliveryModalProps) {
+}: CreateDeliveryMopodalProps) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState<DeliveryFormData>({
     itemDescription: "",

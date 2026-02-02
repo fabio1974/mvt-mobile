@@ -31,6 +31,12 @@ import ActiveDeliveryScreen from "./delivery/ActiveDeliveryScreen";
 import CreateDeliveryScreen from "./delivery/CreateDeliveryScreen";
 import PaymentsScreen from "./payment/PaymentsScreen";
 import BankAccountScreen from "./BankAccountScreen";
+import WithdrawalSettingsScreen from "./WithdrawalSettingsScreen";
+import ChangePasswordScreen from "./ChangePasswordScreen";
+import UserDataScreen from "./UserDataScreen";
+import PaymentMethodsScreen from "./PaymentMethodsScreen";
+import ManageCreditCardsScreen from "./ManageCreditCardsScreen";
+import AddCreditCardScreen from "./AddCreditCardScreen";
 import RideInviteModal from "../components/delivery/RideInviteModal";
 import CreateDeliveryModal from "../components/delivery/CreateDeliveryModal";
 import GradientText from "../components/GradientText";
@@ -53,7 +59,7 @@ interface MainAppProps {
   onLogout: () => void;
 }
 
-type Screen = "dashboard" | "available-rides" | "active-ride" | "bank-account" | "create-delivery" | "payments" | "my-group" | "my-clients";
+type Screen = "dashboard" | "available-rides" | "active-ride" | "bank-account" | "withdrawal-settings" | "change-password" | "user-data" | "create-delivery" | "payments" | "my-group" | "my-clients" | "payment-methods" | "manage-cards" | "add-card";
 
 export default function MainApp({ user, onLogout }: MainAppProps) {
   const insets = useSafeAreaInsets();
@@ -123,7 +129,7 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
   // Verifica se o usuário é entregador
   const userRole = user?.role?.toUpperCase() || "";
   const isDelivery = userRole === "COURIER";
-  const isClient = userRole === "CLIENT";
+  const isClient = userRole === "CLIENT" || userRole === "CUSTOMER";
   const isOrganizer = userRole === "ORGANIZER";
 
   // Determina a saudação baseada no gênero
@@ -579,6 +585,39 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     setShowSideMenu(false);
   };
 
+  const handleShowWithdrawalSettings = () => {
+    setCurrentScreen("withdrawal-settings");
+    setShowSideMenu(false);
+  };
+
+  const handleShowChangePassword = () => {
+    setCurrentScreen("change-password");
+    setShowSideMenu(false);
+  };
+
+  const handleShowUserData = () => {
+    setCurrentScreen("user-data");
+    setShowSideMenu(false);
+  };
+
+  const handleShowPaymentMethods = () => {
+    setCurrentScreen("payment-methods");
+    setShowSideMenu(false);
+  };
+
+  const handleManageCards = () => {
+    setCurrentScreen("manage-cards");
+  };
+
+  const handleAddCard = () => {
+    setCurrentScreen("add-card");
+  };
+
+  const handleCardAdded = () => {
+    // Volta para a tela de gerenciar cartões após adicionar
+    setCurrentScreen("manage-cards");
+  };
+
   // Componente de modal global (sempre renderizado)
   const GlobalModals = () => (
     <>
@@ -694,6 +733,48 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     );
   }
 
+  if (currentScreen === "withdrawal-settings") {
+    console.log("💰 Renderizando WithdrawalSettingsScreen");
+    return (
+      <>
+        <WithdrawalSettingsScreen
+          userId={user?.id || ""}
+          onBack={handleBackToDashboard}
+          onMenuOpen={() => setShowSideMenu(true)}
+        />
+        <GlobalModals />
+      </>
+    );
+  }
+
+  if (currentScreen === "change-password") {
+    console.log("🔐 Renderizando ChangePasswordScreen");
+    return (
+      <>
+        <ChangePasswordScreen
+          userId={user?.id || ""}
+          onBack={handleBackToDashboard}
+          onMenuOpen={() => setShowSideMenu(true)}
+        />
+        <GlobalModals />
+      </>
+    );
+  }
+
+  if (currentScreen === "user-data") {
+    console.log("👤 Renderizando UserDataScreen");
+    return (
+      <>
+        <UserDataScreen
+          userId={user?.id || ""}
+          onBack={handleBackToDashboard}
+          onMenuOpen={() => setShowSideMenu(true)}
+        />
+        <GlobalModals />
+      </>
+    );
+  }
+
   if (currentScreen === "active-ride") {
     if (!activeDeliveryId) {
       // Se não tem ID, volta para dashboard
@@ -718,7 +799,7 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
       <>
         <CreateDeliveryScreen
           onBack={handleBackToDashboard}
-          onSuccess={(delivery) => {
+          onSuccess={(delivery: any) => {
             console.log("✅ Entrega criada com sucesso:", delivery?.id);
             handleBackToDashboard();
           }}
@@ -755,40 +836,68 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     );
   }
 
+  if (currentScreen === "payment-methods") {
+    return (
+      <>
+        <PaymentMethodsScreen
+          userId={user?.id || ""}
+          onBack={handleBackToDashboard}
+          onManageCards={handleManageCards}
+        />
+        <GlobalModals />
+      </>
+    );
+  }
+
+  if (currentScreen === "manage-cards") {
+    return (
+      <>
+        <ManageCreditCardsScreen
+          userId={user?.id || ""}
+          onBack={() => setCurrentScreen("payment-methods")}
+          onAddCard={handleAddCard}
+        />
+        <GlobalModals />
+      </>
+    );
+  }
+
+  if (currentScreen === "add-card") {
+    return (
+      <>
+        <AddCreditCardScreen
+          onBack={() => setCurrentScreen("manage-cards")}
+          onSuccess={handleCardAdded}
+        />
+        <GlobalModals />
+      </>
+    );
+  }
+
   // Dashboard principal
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-      {/* Área de gesto para abrir menu pela borda esquerda */}
-      <View style={styles.edgeSwipeArea} {...edgeOpenResponder.panHandlers} />
+    <>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <StatusBar style="light" />
+        {/* Área de gesto para abrir menu pela borda esquerda */}
+        <View style={styles.edgeSwipeArea} {...edgeOpenResponder.panHandlers} />
 
-      {/* Header com botão do menu */}
-      <View style={[
-        styles.header,
-        Platform.OS === 'android' && { paddingTop: RNStatusBar.currentHeight || 0 }
-      ]}>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => setShowSideMenu(true)}
-        >
-          <Ionicons name="menu" size={28} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Zapi10</Text>
-        <View style={styles.menuButton} />
-      </View>
+        {/* Header com botão do menu */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.menuButton}
+            onPress={() => {
+              console.log('Menu button pressed, current showSideMenu:', showSideMenu);
+              setShowSideMenu(true);
+            }}
+          >
+            <Ionicons name="menu" size={28} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Zapi10</Text>
+          <View style={styles.menuButton} />
+        </View>
 
-      {/* Side Menu */}
-      {user && (
-        <SideMenu
-          visible={showSideMenu}
-          onClose={() => setShowSideMenu(false)}
-          user={user}
-          onLogout={onLogout}
-          onShowBankAccount={handleShowBankAccount}
-        />
-      )}
-
-      <View style={styles.content}>
+        <View style={styles.content}>
         <View style={styles.welcomeCard}>
           <Text style={styles.welcomeTitle}>
             {getGreeting()}, {user?.name || "Usuário"}! 👋
@@ -911,19 +1020,22 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
                 </Text>
               </View>
 
-              <View style={styles.featureCard}>
-                <Text style={styles.featureIcon}>🗺️</Text>
-                <Text style={styles.featureTitle}>Mapa</Text>
-                <Text style={styles.featureDescription}>
-                  Visualize rotas e localizações
+              <TouchableOpacity 
+                style={[styles.featureCard, { backgroundColor: "#f59e0b" }]}
+                onPress={handleShowPaymentMethods}
+              >
+                <Text style={styles.featureIcon}>💳</Text>
+                <Text style={[styles.featureTitle, { color: "#fff" }]}>Meios de Pagamento</Text>
+                <Text style={[styles.featureDescription, { color: "#fef3c7" }]}>
+                  Configure seus métodos de pagamento
                 </Text>
-              </View>
+              </TouchableOpacity>
 
               <TouchableOpacity 
                 style={[styles.featureCard, { backgroundColor: "#7c3aed" }]}
                 onPress={() => setCurrentScreen("payments")}
               >
-                <Text style={styles.featureIcon}>💳</Text>
+                <Text style={styles.featureIcon}>💰</Text>
                 <Text style={[styles.featureTitle, { color: "#fff" }]}>Pagamentos</Text>
                 <Text style={[styles.featureDescription, { color: "#e9d5ff" }]}>
                   Veja seus pagamentos e QR Codes
@@ -1032,7 +1144,7 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
       <CreateDeliveryModal
         visible={showCreateDeliveryModal}
         onClose={() => setShowCreateDeliveryModal(false)}
-        onSuccess={(delivery) => {
+        onSuccess={(delivery: any) => {
           console.log("✅ Entrega criada:", delivery);
           setShowCreateDeliveryModal(false);
         }}
@@ -1530,7 +1642,22 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
       </Modal>
 
       <GlobalModals />
-    </SafeAreaView>
+      </View>
+
+      {/* Side Menu - renderizado por último para ter z-index maior */}
+      {user && (
+        <SideMenu
+          visible={showSideMenu}
+          onClose={() => setShowSideMenu(false)}
+          user={user}
+          onLogout={onLogout}
+          onShowBankAccount={handleShowBankAccount}
+          onShowWithdrawalSettings={handleShowWithdrawalSettings}
+          onShowChangePassword={handleShowChangePassword}
+          onShowUserData={handleShowUserData}
+        />
+      )}
+    </>
   );
 }
 

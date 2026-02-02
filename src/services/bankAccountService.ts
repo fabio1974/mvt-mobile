@@ -11,6 +11,8 @@ export interface BankAccount {
   accountDigit: string;
   accountType: 'CHECKING' | 'SAVINGS';
   automaticTransfer: boolean;
+  transferInterval?: 'Daily' | 'Weekly' | 'Monthly';
+  transferDay?: number;
   status: 'PENDING_VALIDATION' | 'ACTIVE' | 'INACTIVE';
   user?: {
     id: string;
