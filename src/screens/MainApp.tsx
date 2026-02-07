@@ -21,28 +21,33 @@ import { Ionicons } from "@expo/vector-icons";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { unifiedLocationService } from "../services/unifiedLocationService";
 import { notificationService } from "../services/notificationService";
-import { fcmService } from "../services/fcmService";
 import { locationService } from "../services/locationService";
 import { deliveryPollingService } from "../services/deliveryPollingService";
 import { deliveryService } from "../services/deliveryService";
 import { userLocationService } from "../services/userLocationService";
 import AvailableRidesScreen from "./delivery/AvailableRidesScreen";
 import ActiveDeliveryScreen from "./delivery/ActiveDeliveryScreen";
-import CreateDeliveryScreen from "./delivery/CreateDeliveryScreen";
 import PaymentsScreen from "./payment/PaymentsScreen";
 import BankAccountScreen from "./BankAccountScreen";
 import WithdrawalSettingsScreen from "./WithdrawalSettingsScreen";
 import ChangePasswordScreen from "./ChangePasswordScreen";
 import UserDataScreen from "./UserDataScreen";
+import DefaultAddressScreen from "./DefaultAddressScreen";
 import PaymentMethodsScreen from "./PaymentMethodsScreen";
 import ManageCreditCardsScreen from "./ManageCreditCardsScreen";
 import AddCreditCardScreen from "./AddCreditCardScreen";
+import PaymentPreferenceScreen from "./PaymentPreferenceScreen";
+import PixPaymentScreen from "./PixPaymentScreen";
 import RideInviteModal from "../components/delivery/RideInviteModal";
-import CreateDeliveryModal from "../components/delivery/CreateDeliveryModal";
+import { usePaymentPushNotifications } from "../hooks/usePaymentPushNotifications";
+import { PixPaymentInfo } from "../types/payment";
+import CreateDeliveryWizard from "../components/delivery/CreateDeliveryWizard";
 import GradientText from "../components/GradientText";
 import SideMenu from "../components/SideMenu";
 import MyGroupScreen from "./group/MyGroupScreen";
 import MyClientsScreen from "./clients/MyClientsScreen";
+import MyDeliveriesScreen from "./delivery/MyDeliveriesScreen";
+import MyVehiclesScreen from "./vehicle/MyVehiclesScreen";
 import ENV from "../config/env";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -59,7 +64,7 @@ interface MainAppProps {
   onLogout: () => void;
 }
 
-type Screen = "dashboard" | "available-rides" | "active-ride" | "bank-account" | "withdrawal-settings" | "change-password" | "user-data" | "create-delivery" | "payments" | "my-group" | "my-clients" | "payment-methods" | "manage-cards" | "add-card";
+type Screen = "dashboard" | "available-rides" | "active-ride" | "bank-account" | "withdrawal-settings" | "change-password" | "user-data" | "default-address" | "create-delivery" | "payments" | "my-group" | "my-clients" | "my-deliveries" | "my-vehicles" | "payment-methods" | "manage-cards" | "add-card" | "payment-preference" | "pix-payment";
 
 export default function MainApp({ user, onLogout }: MainAppProps) {
   const insets = useSafeAreaInsets();
@@ -79,8 +84,10 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
   const [showSideMenu, setShowSideMenu] = useState(false);
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [showCreateDeliveryModal, setShowCreateDeliveryModal] = useState(false);
+  const [pixPaymentInfo, setPixPaymentInfo] = useState<PixPaymentInfo | null>(null);
   const [userLocation, setUserLocation] = useState<{latitude: number; longitude: number} | null>(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
+  const [paymentPreferenceRefreshKey, setPaymentPreferenceRefreshKey] = useState(0);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mapRef = useRef<MapView>(null);
   const locationInitializedRef = useRef(false);
@@ -169,8 +176,31 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
       }
     };
 
+    // Carrega localização do usuário automaticamente
+    const loadUserLocation = async () => {
+      try {
+        console.log('📍 Carregando localização do usuário...');
+        const result = await userLocationService.getCurrentUserLocation();
+        
+        if (result.success && result.latitude && result.longitude) {
+          setUserLocation({
+            latitude: result.latitude,
+            longitude: result.longitude
+          });
+          console.log('✅ Localização carregada:', result.latitude, result.longitude);
+        } else {
+          console.log('⚠️ Sem localização salva no banco');
+        }
+      } catch (error) {
+        console.error('❌ Erro ao carregar localização:', error);
+      }
+    };
+
     // Executa limpeza de duplicatas ao montar
     cleanupDuplicates();
+    
+    // Carrega localização automaticamente
+    loadUserLocation();
 
     // Inicia tracking de localização automaticamente para entregadores
     if (isDelivery) {
@@ -264,6 +294,51 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     };
   }, [isDelivery]);
 
+  // ============================================
+  // 🔔 Hook de Push Notifications de Pagamento
+  // ============================================
+  usePaymentPushNotifications({
+    onPixRequired: (pixInfo) => {
+      console.log('💰 [MainApp] PIX necessário recebido:', pixInfo);
+      setPixPaymentInfo(pixInfo);
+      setCurrentScreen('pix-payment');
+    },
+    onPaymentSuccess: (deliveryId, amount) => {
+      console.log('✅ [MainApp] Pagamento aprovado:', deliveryId, amount);
+      Alert.alert(
+        '✅ Pagamento Aprovado!',
+        `Seu pagamento de R$ ${(amount / 100).toFixed(2)} foi processado com sucesso.`,
+        [{ text: 'OK' }]
+      );
+      // Recarregar entregas se necessário
+      if (currentScreen === 'create-delivery' || currentScreen === 'available-rides') {
+        // Atualizar lista de entregas
+      }
+    },
+    onPaymentFailed: (deliveryId, error) => {
+      console.log('❌ [MainApp] Pagamento falhou:', deliveryId, error);
+      Alert.alert(
+        '❌ Pagamento Recusado',
+        error || 'Não foi possível processar o pagamento. Verifique seus dados de pagamento.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { 
+            text: 'Configurar Pagamento', 
+            onPress: () => setCurrentScreen('payment-preference') 
+          }
+        ]
+      );
+    },
+    onPixConfirmed: (deliveryId) => {
+      console.log('✅ [MainApp] PIX confirmado:', deliveryId);
+      Alert.alert(
+        '✅ PIX Confirmado!',
+        'Seu pagamento PIX foi confirmado com sucesso.',
+        [{ text: 'OK', onPress: () => setCurrentScreen('dashboard') }]
+      );
+    },
+  });
+
   const startLocationTracking = async () => {
     try {
       // Evita inicializar múltiplas vezes
@@ -323,79 +398,7 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
       console.log("🔔 [MainApp] Platform:", Platform.OS);
       console.log("🔔 [MainApp] __DEV__:", __DEV__);
 
-      // Inicializa FCM primeiro
-      if (Platform.OS !== 'web') {
-        console.log("📱 [MainApp] Inicializando FCM...");
-        const fcmToken = await fcmService.getToken();
-        
-        if (fcmToken && user?.id) {
-          await fcmService.sendTokenToBackend(user.id);
-          
-          // Setup FCM listeners
-          fcmService.setupNotificationListeners(async (message) => {
-            console.log("🚚 [MainApp] FCM Message recebido:", message);
-            
-            // Exibe notificação local para mostrar banner em foreground
-            const title = message.notification?.title || '🚚 Nova Notificação';
-            const body = message.notification?.body || 'Você recebeu uma nova mensagem';
-            
-            // Mostra notificação visual mesmo em foreground
-            await notificationService.sendLocalNotification(title, body, message.data);
-            
-            // Expo Push envia o data como JSON string no campo body
-            // Precisamos parsear para obter type e deliveryId
-            let parsedData = message.data;
-            if (message.data?.body && typeof message.data.body === 'string') {
-              try {
-                const bodyData = JSON.parse(message.data.body);
-                parsedData = { ...message.data, ...bodyData };
-                console.log("📦 [MainApp] Data parseado do body:", parsedData);
-              } catch (e) {
-                console.log("⚠️ [MainApp] Não foi possível parsear body como JSON");
-              }
-            }
-            
-            // Processa notificação de convite de entrega
-            if (parsedData?.type === 'delivery_invite' && parsedData.deliveryId) {
-              console.log("🚀 [MainApp] Processando delivery_invite - buscando dados completos...");
-              console.log("📦 [MainApp] DeliveryId da notificação:", parsedData.deliveryId);
-              
-              // Verifica se esta entrega já foi rejeitada
-              const rejectedIds = await deliveryPollingService.getRejectedDeliveryIds();
-              if (rejectedIds.includes(parsedData.deliveryId)) {
-                console.log("🚫 [MainApp] Entrega já foi rejeitada, ignorando push:", parsedData.deliveryId);
-                return;
-              }
-              
-              try {
-                // Busca dados completos da entrega no backend
-                const response = await deliveryService.getDeliveryById(parsedData.deliveryId);
-                
-                if (response.success && response.data) {
-                  const deliveryData = Array.isArray(response.data) ? response.data[0] : response.data;
-                  console.log("✅ [MainApp] Dados completos da entrega obtidos:", deliveryData.id);
-                  setInviteDeliveryData(deliveryData);
-                  setInviteDeliveryId(deliveryData.id);
-                  setShowRideInvite(true);
-                } else {
-                  console.error("❌ [MainApp] Erro ao buscar entrega:", response.error);
-                  // Fallback: usa dados parciais da notificação
-                  setInviteDeliveryData(parsedData);
-                  setInviteDeliveryId(parsedData.deliveryId);
-                  setShowRideInvite(true);
-                }
-              } catch (error) {
-                console.error("❌ [MainApp] Exceção ao buscar entrega:", error);
-                // Fallback: usa dados parciais da notificação
-                setInviteDeliveryData(parsedData);
-                setInviteDeliveryId(parsedData.deliveryId);
-                setShowRideInvite(true);
-              }
-            }
-          });
-        }
-      }
-
+      // Inicializa serviço de notificações Expo (registro de token + listeners)
       const success = await notificationService.initialize();
 
       if (success) {
@@ -411,14 +414,34 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
             return;
           }
           
-          console.log("🚚 [MainApp] Abrindo modal de convite...");
+          console.log("� [MainApp] Processando delivery_invite - buscando dados completos...");
           
-          // Abre o modal com os dados da entrega
-          setInviteDeliveryData(data);
-          setInviteDeliveryId(data.deliveryId);
-          setShowRideInvite(true);
+          try {
+            // Busca dados completos da entrega no backend
+            const response = await deliveryService.getDeliveryById(data.deliveryId);
+            
+            if (response.success && response.data) {
+              const deliveryData = Array.isArray(response.data) ? response.data[0] : response.data;
+              console.log("✅ [MainApp] Dados completos da entrega obtidos:", deliveryData.id);
+              setInviteDeliveryData(deliveryData);
+              setInviteDeliveryId(deliveryData.id);
+              setShowRideInvite(true);
+            } else {
+              console.error("❌ [MainApp] Erro ao buscar entrega:", response.error);
+              // Fallback: usa dados parciais da notificação
+              setInviteDeliveryData(data);
+              setInviteDeliveryId(data.deliveryId);
+              setShowRideInvite(true);
+            }
+          } catch (error) {
+            console.error("❌ [MainApp] Exceção ao buscar entrega:", error);
+            // Fallback: usa dados parciais da notificação
+            setInviteDeliveryData(data);
+            setInviteDeliveryId(data.deliveryId);
+            setShowRideInvite(true);
+          }
           
-          console.log("✅ [MainApp] Modal aberto com sucesso");
+          console.log("✅ [MainApp] Modal de convite aberto");
         });
 
         // Callback de polling é registrado no useEffect separado
@@ -600,8 +623,23 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     setShowSideMenu(false);
   };
 
+  const handleShowDefaultAddress = () => {
+    setCurrentScreen("default-address");
+    setShowSideMenu(false);
+  };
+
+  const handleShowMyVehicles = () => {
+    setCurrentScreen("my-vehicles");
+    setShowSideMenu(false);
+  };
+
   const handleShowPaymentMethods = () => {
     setCurrentScreen("payment-methods");
+    setShowSideMenu(false);
+  };
+
+  const handleShowPaymentPreference = () => {
+    setCurrentScreen("payment-preference");
     setShowSideMenu(false);
   };
 
@@ -609,8 +647,18 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     setCurrentScreen("manage-cards");
   };
 
+  const handleBackToPaymentPreference = () => {
+    // Incrementa refreshKey para forçar reload da tela
+    setPaymentPreferenceRefreshKey(prev => prev + 1);
+    setCurrentScreen("payment-preference");
+  };
+
   const handleAddCard = () => {
     setCurrentScreen("add-card");
+  };
+
+  const handleBackToManageCards = () => {
+    setCurrentScreen("manage-cards");
   };
 
   const handleCardAdded = () => {
@@ -775,6 +823,20 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     );
   }
 
+  if (currentScreen === "default-address") {
+    console.log("🏠 Renderizando DefaultAddressScreen");
+    return (
+      <>
+        <DefaultAddressScreen
+          userId={user?.id || ""}
+          onBack={handleBackToDashboard}
+          onMenuOpen={() => setShowSideMenu(true)}
+        />
+        <GlobalModals />
+      </>
+    );
+  }
+
   if (currentScreen === "active-ride") {
     if (!activeDeliveryId) {
       // Se não tem ID, volta para dashboard
@@ -795,18 +857,10 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
   }
 
   if (currentScreen === "create-delivery") {
-    return (
-      <>
-        <CreateDeliveryScreen
-          onBack={handleBackToDashboard}
-          onSuccess={(delivery: any) => {
-            console.log("✅ Entrega criada com sucesso:", delivery?.id);
-            handleBackToDashboard();
-          }}
-        />
-        <GlobalModals />
-      </>
-    );
+    // Redirecionar para o dashboard e mostrar o wizard modal
+    setCurrentScreen("dashboard");
+    setShowCreateDeliveryModal(true);
+    return null;
   }
 
   if (currentScreen === "payments") {
@@ -836,6 +890,24 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     );
   }
 
+  if (currentScreen === "my-deliveries") {
+    return (
+      <>
+        <MyDeliveriesScreen onBack={handleBackToDashboard} />
+        <GlobalModals />
+      </>
+    );
+  }
+
+  if (currentScreen === "my-vehicles") {
+    return (
+      <>
+        <MyVehiclesScreen onBack={handleBackToDashboard} />
+        <GlobalModals />
+      </>
+    );
+  }
+
   if (currentScreen === "payment-methods") {
     return (
       <>
@@ -849,25 +921,51 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
     );
   }
 
-  if (currentScreen === "manage-cards") {
+  if (currentScreen === "payment-preference" || currentScreen === "manage-cards" || currentScreen === "add-card") {
     return (
       <>
-        <ManageCreditCardsScreen
-          userId={user?.id || ""}
-          onBack={() => setCurrentScreen("payment-methods")}
-          onAddCard={handleAddCard}
-        />
+        <View style={{ display: currentScreen === "payment-preference" ? "flex" : "none", flex: 1 }}>
+          <PaymentPreferenceScreen
+            refreshTrigger={paymentPreferenceRefreshKey}
+            onBack={handleBackToDashboard}
+            onAddCard={handleManageCards}
+          />
+        </View>
+        
+        {currentScreen === "manage-cards" && (
+          <ManageCreditCardsScreen
+            userId={user?.id || ""}
+            onBack={handleBackToPaymentPreference}
+            onAddCard={handleAddCard}
+          />
+        )}
+        
+        {currentScreen === "add-card" && (
+          <AddCreditCardScreen
+            onBack={handleBackToManageCards}
+            onSuccess={handleCardAdded}
+          />
+        )}
+        
         <GlobalModals />
       </>
     );
   }
 
-  if (currentScreen === "add-card") {
+  if (currentScreen === "pix-payment" && pixPaymentInfo) {
     return (
       <>
-        <AddCreditCardScreen
-          onBack={() => setCurrentScreen("manage-cards")}
-          onSuccess={handleCardAdded}
+        <PixPaymentScreen
+          pixInfo={pixPaymentInfo}
+          onBack={() => {
+            setPixPaymentInfo(null);
+            setCurrentScreen("dashboard");
+          }}
+          onPaymentConfirmed={() => {
+            console.log('🎉 Pagamento PIX confirmado - voltando ao dashboard');
+            setPixPaymentInfo(null);
+            setCurrentScreen("dashboard");
+          }}
         />
         <GlobalModals />
       </>
@@ -904,7 +1002,7 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
           </Text>
           <Text style={styles.welcomeSubtitle}>Email: {user?.email}</Text>
           <Text style={styles.welcomeSubtitle}>
-            Perfil: {isDelivery ? "Motoboy 🏍️" : isOrganizer ? "Gerente 👔" : isClient ? "Cliente 📦" : user?.role}
+            Perfil: {isDelivery ? "Motorista 🏍️" : isOrganizer ? "Gerente 👔" : userRole === "CLIENT" ? "Estabelecimento 🏪" : userRole === "CUSTOMER" ? "Pessoa Física 👤" : user?.role}
           </Text>
           <TouchableOpacity onPress={handleOpenLocationModal} style={styles.locationRow}>
             <Text style={styles.welcomeSubtitle}>
@@ -1012,22 +1110,25 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
                 </Text>
               </TouchableOpacity>
 
-              <View style={styles.featureCard}>
+              <TouchableOpacity 
+                style={[styles.featureCard, { backgroundColor: "#3b82f6" }]}
+                onPress={() => setCurrentScreen("my-deliveries")}
+              >
                 <Text style={styles.featureIcon}>📦</Text>
-                <Text style={styles.featureTitle}>Minhas Entregas</Text>
-                <Text style={styles.featureDescription}>
+                <Text style={[styles.featureTitle, { color: "#fff" }]}>Minhas Entregas</Text>
+                <Text style={[styles.featureDescription, { color: "#dbeafe" }]}>
                   Acompanhe suas entregas solicitadas
                 </Text>
-              </View>
+              </TouchableOpacity>
 
               <TouchableOpacity 
                 style={[styles.featureCard, { backgroundColor: "#f59e0b" }]}
-                onPress={handleShowPaymentMethods}
+                onPress={handleShowPaymentPreference}
               >
                 <Text style={styles.featureIcon}>💳</Text>
                 <Text style={[styles.featureTitle, { color: "#fff" }]}>Meios de Pagamento</Text>
                 <Text style={[styles.featureDescription, { color: "#fef3c7" }]}>
-                  Configure seus métodos de pagamento
+                  Configure pagamento automático e cartões
                 </Text>
               </TouchableOpacity>
 
@@ -1140,14 +1241,16 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
         autoCloseTimer={30}
       />
 
-      {/* Modal de criar nova entrega (para CLIENT) */}
-      <CreateDeliveryModal
+      {/* Wizard de criar nova entrega/viagem (para CLIENT/CUSTOMER) */}
+      <CreateDeliveryWizard
         visible={showCreateDeliveryModal}
         onClose={() => setShowCreateDeliveryModal(false)}
         onSuccess={(delivery: any) => {
           console.log("✅ Entrega criada:", delivery);
           setShowCreateDeliveryModal(false);
         }}
+        userLocation={userLocation}
+        userRole={userRole}
       />
 
       {/* Botão flutuante para abrir menu de testes */}
@@ -1655,6 +1758,8 @@ export default function MainApp({ user, onLogout }: MainAppProps) {
           onShowWithdrawalSettings={handleShowWithdrawalSettings}
           onShowChangePassword={handleShowChangePassword}
           onShowUserData={handleShowUserData}
+          onShowDefaultAddress={handleShowDefaultAddress}
+          onShowMyVehicles={handleShowMyVehicles}
         />
       )}
     </>

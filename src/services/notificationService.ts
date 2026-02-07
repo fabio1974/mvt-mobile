@@ -342,25 +342,32 @@ class NotificationService {
     console.log('========================================');
     console.log('📬 FOREGROUND NOTIFICATION RECEIVED!');
     console.log('========================================');
-    console.log('Notification object:', JSON.stringify(notification, null, 2));
 
-    const data = notification.request.content.data as unknown as NotificationData;
+    let data = notification.request.content.data as any;
     const title = notification.request.content.title || 'Nova Notificação';
     const body = notification.request.content.body || '';
     
     console.log('📝 Título:', title);
     console.log('📝 Corpo:', body);
     console.log('📝 Data:', JSON.stringify(data, null, 2));
+
+    // Expo Push API pode enviar data como JSON string no campo body
+    // Precisamos parsear para obter type e deliveryId
+    if (data?.body && typeof data.body === 'string') {
+      try {
+        const bodyData = JSON.parse(data.body);
+        data = { ...data, ...bodyData };
+        console.log('📦 Data parseado do body JSON:', data);
+      } catch (e) {
+        // Não é JSON, ignora
+      }
+    }
     
     // Se é convite de entrega, chama o callback DIRETAMENTE (abre o modal)
     if (data?.type === 'delivery_invite') {
-      console.log('🚚 [MainApp] Callback de delivery invite chamado!');
       console.log('🚚 Tipo: delivery_invite - CHAMANDO CALLBACK DIRETAMENTE');
-      
-      // CHAMA O CALLBACK IMEDIATAMENTE (abre modal)
-      this.handleDeliveryInvite(data);
-      
-      console.log('✅ Callback de delivery invite executado - Modal deve abrir agora!');
+      this.handleDeliveryInvite(data as NotificationData);
+      console.log('✅ Callback de delivery invite executado');
     } else {
       // Para outros tipos, mostra alert
       console.log('📌 Tipo genérico - Mostrando alert simples');
@@ -368,7 +375,6 @@ class NotificationService {
         text: 'OK',
         onPress: () => console.log('✅ Alert OK pressionado')
       }]);
-      console.log('✅ Alert.alert() simples chamado');
     }
   }
 

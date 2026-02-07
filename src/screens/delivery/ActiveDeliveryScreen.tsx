@@ -316,8 +316,8 @@ export default function ActiveDeliveryScreen({
 
   const handlePickUp = async () => {
     Alert.alert(
-      '📦 Confirmar Coleta',
-      'Confirmar que você coletou o item no local de origem?',
+      '� Coletar e Iniciar Viagem',
+      'Confirmar coleta e iniciar viagem para o destino?',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -329,7 +329,7 @@ export default function ActiveDeliveryScreen({
               const response = await deliveryService.pickupDelivery(deliveryId);
 
               if (response.success) {
-                Alert.alert("Sucesso!", response.message || "Item coletado");
+                Alert.alert("Sucesso!", response.message || "Em trânsito!");
                 await loadDelivery();
               } else {
                 Alert.alert("Erro", response.error || "Não foi possível coletar");
@@ -346,37 +346,8 @@ export default function ActiveDeliveryScreen({
     );
   };
 
-  const handleStartTransit = async () => {
-    Alert.alert(
-      '🚚 Iniciar Viagem',
-      'Iniciar a viagem para o destino?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Confirmar',
-          onPress: async () => {
-            try {
-              setUpdating(true);
-              
-              const response = await deliveryService.startTransitDelivery(deliveryId);
-
-              if (response.success) {
-                Alert.alert("Sucesso!", response.message || "Em trânsito");
-                await loadDelivery();
-              } else {
-                Alert.alert("Erro", response.error || "Não foi possível iniciar");
-              }
-            } catch (error) {
-              console.error("Erro ao iniciar trânsito:", error);
-              Alert.alert("Erro", "Erro de conexão");
-            } finally {
-              setUpdating(false);
-            }
-          }
-        }
-      ]
-    );
-  };
+  // ⚠️ REMOVIDO: handleStartTransit não é mais necessário
+  // O pickup agora já inicia o trânsito automaticamente (IN_TRANSIT)
 
   const handleComplete = async () => {
     Alert.alert(
@@ -832,24 +803,12 @@ export default function ActiveDeliveryScreen({
 
             {currentStatus === 'ACCEPTED' && (
               <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: '#8b5cf6' }]}
+                style={[styles.actionButton, { backgroundColor: '#06b6d4' }]}
                 onPress={handlePickUp}
                 disabled={updating}
               >
                 <Text style={styles.actionButtonText}>
-                  📦 Coletar Item
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {currentStatus === 'PICKED_UP' && (
-              <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: '#06b6d4' }]}
-                onPress={handleStartTransit}
-                disabled={updating}
-              >
-                <Text style={styles.actionButtonText}>
-                  🚚 Iniciar Viagem
+                  🚚 Coletar e Iniciar Viagem
                 </Text>
               </TouchableOpacity>
             )}

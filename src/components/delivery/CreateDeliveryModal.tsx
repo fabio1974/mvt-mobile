@@ -13,8 +13,11 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Picker } from '@react-native-picker/picker';
 import { deliveryService } from "../../services/deliveryService";
 import { authService } from "../../services/authService";
+import { paymentService } from "../../services/paymentService";
+import { DeliveryType } from "../../types/payment";
 
 interface CreateDeliveryMopodalProps {
   visible: boolean;
@@ -34,6 +37,7 @@ interface DeliveryFormData {
   toLongitude: string;
   totalAmount: string;
   distanceKm: string;
+  deliveryType: DeliveryType; // DELIVERY = entrega, RIDE = viagem
 }
 
 export default function CreateDeliveryModal({
@@ -54,6 +58,7 @@ export default function CreateDeliveryModal({
     toLongitude: "",
     totalAmount: "",
     distanceKm: "",
+    deliveryType: "DELIVERY", // Default: entrega
   });
 
   // Reset form quando modal abre
@@ -71,6 +76,7 @@ export default function CreateDeliveryModal({
         toLongitude: "",
         totalAmount: "",
         distanceKm: "",
+        deliveryType: "DELIVERY",
       });
     }
   }, [visible]);
@@ -79,7 +85,7 @@ export default function CreateDeliveryModal({
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const validateForm = (): boolean => {
+  const validateForm = async (): Promise<boolean> => {
     if (!formData.itemDescription.trim()) {
       Alert.alert("Erro", "Descrição do item é obrigatória");
       return false;
@@ -104,11 +110,50 @@ export default function CreateDeliveryModal({
       Alert.alert("Erro", "Valor total é obrigatório e deve ser um número");
       return false;
     }
+
+    // VALIDAÇÃO IMPORTANTE: RIDE requer cartão cadastrado
+    if (formData.deliveryType === "RIDE") {
+      try {
+        const preference = await paymentService.getPaymentPreference();
+        
+        // Se preferência é PIX, não pode criar RIDE
+        if (preference.preferredPaymentMethod === "PIX") {
+          Alert.alert(
+            "⚠️ RIDE Requer Cartão",
+            "Viagens (RIDE) só podem ser pagas com cartão. Configure um cartão nas preferências de pagamento.",
+            [{ text: "OK" }]
+          );
+          return false;
+        }
+
+        // Verifica se tem cartão default
+        if (!preference.defaultCardId) {
+          const hasCards = await paymentService.hasCards();
+          if (!hasCards) {
+            Alert.alert(
+              "⚠️ Cartão Necessário",
+              "Você precisa cadastrar um cartão para criar viagens (RIDE). Configure nas preferências de pagamento.",
+              [{ text: "OK" }]
+            );
+            return false;
+          }
+        }
+      } catch (error) {
+        console.error("Erro ao validar preferência:", error);
+        Alert.alert(
+          "Erro",
+          "Não foi possível validar sua preferência de pagamento. Tente novamente."
+        );
+        return false;
+      }
+    }
+
     return true;
   };
 
   const handleSubmit = async () => {
-    if (!validateForm()) return;
+    const isValid = await validateForm();
+    if (!isValid) return;
 
     setLoading(true);
     try {
@@ -136,6 +181,7 @@ export default function CreateDeliveryModal({
         toLongitude: formData.toLongitude ? parseFloat(formData.toLongitude) : null,
         totalAmount: formData.totalAmount.trim(),
         distanceKm: formData.distanceKm ? parseFloat(formData.distanceKm) : null,
+        deliveryType: formData.deliveryType, // DELIVERY ou RIDE
       };
 
       console.log("📦 Criando nova entrega:", deliveryData);
@@ -187,6 +233,69 @@ export default function CreateDeliveryModal({
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Seção: Tipo de Serviço */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>🚗 Tipo de Serviço</Text>
+            
+            <View style={styles.deliveryTypeContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.deliveryTypeButton,
+                  formData.deliveryType === 'DELIVERY' && styles.deliveryTypeButtonActive
+                ]}
+                onPress={() => handleInputChange('deliveryType', 'DELIVERY')}
+              >
+                <Ionicons 
+                  name="cube-outline" 
+                  size={32} 
+                  color={formData.deliveryType === 'DELIVERY' ? '#0f0f23' : '#666'}
+                />
+                <Text style={[
+                  styles.deliveryTypeLabel,
+                  formData.deliveryType === 'DELIVERY' && styles.deliveryTypeLabelActive
+                ]}>
+                  📦 Entrega
+                </Text>
+                <Text style={styles.deliveryTypeHint}>
+                  Pago quando motoboy aceita
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.deliveryTypeButton,
+                  formData.deliveryType === 'RIDE' && styles.deliveryTypeButtonActive
+                ]}
+                onPress={() => handleInputChange('deliveryType', 'RIDE')}
+              >
+                <Ionicons 
+                  name="car-outline" 
+                  size={32} 
+                  color={formData.deliveryType === 'RIDE' ? '#0f0f23' : '#666'}
+                />
+                <Text style={[
+                  styles.deliveryTypeLabel,
+                  formData.deliveryType === 'RIDE' && styles.deliveryTypeLabelActive
+                ]}>
+                  🚗 Viagem
+                </Text>
+                <Text style={styles.deliveryTypeHint}>
+                  Pago quando motorista inicia
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Info box sobre pagamento */}
+            {formData.deliveryType === 'RIDE' && (
+              <View style={styles.rideInfoBox}>
+                <Ionicons name="information-circle-outline" size={20} color="#3b82f6" />
+                <Text style={styles.rideInfoText}>
+                  Viagens só podem ser pagas com cartão. Certifique-se de ter um cartão cadastrado.
+                </Text>
+              </View>
+            )}
+          </View>
+
           {/* Seção: Informações do Item */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>📦 Informações do Item</Text>
@@ -457,5 +566,52 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: "center",
     marginTop: 16,
+  },
+  deliveryTypeContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  deliveryTypeButton: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#334155',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deliveryTypeButtonActive: {
+    borderColor: '#10b981',
+    backgroundColor: '#1e293b',
+  },
+  deliveryTypeLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  deliveryTypeLabelActive: {
+    color: '#fff',
+  },
+  deliveryTypeHint: {
+    fontSize: 11,
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  rideInfoBox: {
+    flexDirection: 'row',
+    backgroundColor: '#1e3a8a',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+  },
+  rideInfoText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#bfdbfe',
+    lineHeight: 18,
   },
 });

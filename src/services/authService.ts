@@ -20,6 +20,18 @@ interface AuthResponse {
   error?: string;
 }
 
+interface RegisterRequest {
+  name: string;
+  username: string;
+  cpf: string;
+  password: string;
+  role: string;
+}
+
+interface RegisterErrorResponse extends AuthResponse {
+  statusCode?: number;
+}
+
 /**
  * Serviço de autenticação
  */
@@ -76,11 +88,14 @@ export class AuthService {
       // - Ativas: limpa tudo (recarrega do backend)
       await deliveryPollingService.cleanupCachesOnLogin();
 
-      // Atualiza flag local de conta bancária ativa (não bloqueia login se falhar)
-      try {
-        await bankAccountService.refreshHasActiveBankAccount(mappedUser.id);
-      } catch (err) {
-        console.warn('⚠️ Não foi possível atualizar flag de conta bancária ativa no login:', err);
+      // Atualiza flag local de conta bancária ativa APENAS para COURIER e ORGANIZER
+      // Clientes (CUSTOMER) não precisam de conta bancária
+      if (mappedUser.role === 'courier' || mappedUser.role === 'organizer') {
+        try {
+          await bankAccountService.refreshHasActiveBankAccount(mappedUser.id);
+        } catch (err) {
+          console.warn('⚠️ Não foi possível atualizar flag de conta bancária ativa no login:', err);
+        }
       }
 
       // Define usuário no Crashlytics (desabilitado para Expo Go)
@@ -126,6 +141,91 @@ export class AuthService {
     console.log('🌐 Validando token na API Real');
     const response = await apiClient.get('/auth/validate');
     return response.data;
+  }
+
+  /**
+   * Registra um novo usuário
+   */
+  async register(data: RegisterRequest): Promise<RegisterErrorResponse> {
+    console.log('📝 AuthService.register - Criando conta:', { username: data.username, role: data.role });
+
+    try {
+      const response = await apiClient.post<{ message: string }>('/auth/register', data);
+
+      console.log('✅ Conta criada com sucesso:', response.status);
+
+      return {
+        success: true,
+      };
+    } catch (error: any) {
+      console.error('❌ Erro ao criar conta:', error);
+      console.error('❌ Status:', error.response?.status);
+      console.error('❌ Data:', error.response?.data);
+
+      const statusCode = error.response?.status;
+      let errorMessage = 'Erro ao criar conta';
+      
+      if (error.response?.data) {
+        const serverMessage = error.response.data.message || error.response.data.error || error.response.data;
+
+        if (typeof serverMessage === 'string') {
+          if (serverMessage.includes('already exists') || serverMessage.includes('já cadastrado')) {
+            errorMessage = serverMessage; // Usa mensagem completa do servidor
+          } else if (serverMessage.includes('CPF')) {
+            errorMessage = 'CPF inválido ou já cadastrado';
+          } else {
+            errorMessage = serverMessage;
+          }
+        }
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        statusCode,
+      };
+    }
+  }
+
+  /**
+   * Reenvia email de confirmação para conta não confirmada
+   */
+  async resendConfirmation(email: string): Promise<{ message: string }> {
+    console.log('📧 AuthService.resendConfirmation - Reenviando email:', email);
+
+    try {
+      const response = await apiClient.post<{ message: string }>('/auth/resend-confirmation', {
+        username: email,
+      });
+
+      console.log('✅ Email de confirmação reenviado com sucesso');
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Erro ao reenviar email:', error);
+      console.error('❌ Status:', error.response?.status);
+      console.error('❌ Data:', error.response?.data);
+      throw error;
+    }
+  }
+
+  /**
+   * Envia email para recuperação de senha
+   */
+  async forgotPassword(email: string): Promise<void> {
+    console.log('🔑 AuthService.forgotPassword - Enviando link de recuperação:', email);
+
+    try {
+      await apiClient.post('/auth/forgot-password', {
+        email,
+      });
+
+      console.log('✅ Link de recuperação enviado com sucesso');
+    } catch (error: any) {
+      console.error('❌ Erro ao enviar link de recuperação:', error);
+      console.error('❌ Status:', error.response?.status);
+      console.error('❌ Data:', error.response?.data);
+      throw error;
+    }
   }
   
   async logout() {

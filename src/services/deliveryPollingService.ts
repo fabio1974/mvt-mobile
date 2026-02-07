@@ -261,8 +261,8 @@ class DeliveryPollingService {
       // 1️⃣ BUSCA DO STORAGE LOCAL (sempre primeiro)
       const allDeliveries = await this.loadAllDeliveriesFromStorage();
       
-      // Filtra entregas ativas (ACCEPTED, PICKED_UP, IN_TRANSIT)
-      const activeStatuses = ['ACCEPTED', 'PICKED_UP', 'IN_TRANSIT'];
+      // Filtra entregas ativas (ACCEPTED, IN_TRANSIT)
+      const activeStatuses = ['ACCEPTED', 'IN_TRANSIT'];
       const activeFromStorage = allDeliveries.filter(d => 
         d.status && activeStatuses.includes(d.status.toUpperCase())
       );
@@ -491,7 +491,7 @@ class DeliveryPollingService {
       const cachedData = await AsyncStorage.getItem(this.STORAGE_KEY_ACTIVE_CACHE);
       if (cachedData) {
         const cached = JSON.parse(cachedData);
-        const activeStatuses = ['ACCEPTED', 'PICKED_UP', 'IN_TRANSIT'];
+        const activeStatuses = ['ACCEPTED', 'IN_TRANSIT'];
         const activeDelivery = cached.deliveries?.find((d: any) => {
           const status = d.status?.toUpperCase();
           return activeStatuses.includes(status);
@@ -510,7 +510,7 @@ class DeliveryPollingService {
       
       if (response.success && response.data) {
         const deliveries = Array.isArray(response.data) ? response.data : [response.data];
-        const activeStatuses = ['ACCEPTED', 'PICKED_UP', 'IN_TRANSIT'];
+        const activeStatuses = ['ACCEPTED', 'IN_TRANSIT'];
         const activeDelivery = deliveries.find((d: any) => {
           const status = d.status?.toUpperCase();
           return activeStatuses.includes(status);
@@ -1035,7 +1035,7 @@ class DeliveryPollingService {
           
           // Se já existe, mantém a versão com status mais avançado
           const existing = uniqueMap.get(normalizedId)!;
-          const statusOrder = ['PENDING', 'ACCEPTED', 'PICKED_UP', 'IN_TRANSIT', 'COMPLETED', 'CANCELLED'];
+          const statusOrder = ['PENDING', 'ACCEPTED', 'IN_TRANSIT', 'COMPLETED', 'CANCELLED'];
           const existingOrder = statusOrder.indexOf(existing.status || 'PENDING');
           const currentOrder = statusOrder.indexOf(delivery.status || 'PENDING');
           

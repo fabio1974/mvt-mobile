@@ -1,5 +1,12 @@
 import { apiClient } from './api';
-import { CreditCard, PaymentMethodType, CardBrand, AddCardRequest } from '../types/payment';
+import { 
+  CreditCard, 
+  PaymentMethodType, 
+  CardBrand, 
+  AddCardRequest,
+  PaymentPreference,
+  SavePaymentPreferenceRequest 
+} from '../types/payment';
 
 /**
  * Interface para criação de cartão
@@ -238,7 +245,20 @@ class PaymentService {
    * Adicionar novo cartão (já tokenizado)
    */
   async addCreditCard(request: AddCardRequest): Promise<CreditCard> {
+    console.log('📤 [BACKEND] Enviando token para backend:', {
+      token: request.cardToken,
+      setAsDefault: request.setAsDefault,
+      timestamp: new Date().toISOString(),
+    });
+    
     const response = await apiClient.post('/customer-cards', request);
+    
+    console.log('✅ [BACKEND] Cartão salvo com sucesso:', {
+      id: response.data.id,
+      maskedNumber: response.data.maskedNumber,
+      brand: response.data.brand,
+    });
+    
     return response.data;
   }
 
@@ -271,6 +291,60 @@ class PaymentService {
   async hasCards(): Promise<boolean> {
     const response = await apiClient.get<{ hasCards: boolean }>('/customer-cards/has-cards');
     return response.data.hasCards;
+  }
+
+  // ==================== PREFERÊNCIA DE PAGAMENTO ====================
+
+  /**
+   * Busca preferência de pagamento do customer
+   */
+  async getPaymentPreference(): Promise<PaymentPreference> {
+    try {
+      const response = await apiClient.get<PaymentPreference>(
+        '/customers/me/payment-preference'
+      );
+      console.log('✅ Preferência obtida do backend:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Erro ao buscar preferência:', error);
+      console.error('❌ Status:', error.response?.status);
+      console.error('❌ Data:', error.response?.data);
+      console.error('❌ Message:', error.message);
+      
+      // IMPORTANTE: Backend está retornando erro 400!
+      // Por isso sempre retorna PIX default, mesmo quando DB tem CREDIT_CARD
+      console.warn('⚠️ Usando preferência default (PIX) porque backend retornou erro');
+      
+      return {
+        preferredPaymentType: 'PIX', // Default para PIX quando não tem preferência
+        defaultCardId: null,
+        defaultCardBrand: null,
+        defaultCardLastFour: null,
+        hasDefaultCard: false,
+      };
+    }
+  }
+
+  /**
+   * Salva preferência de pagamento do customer
+   */
+  async savePaymentPreference(
+    request: SavePaymentPreferenceRequest
+  ): Promise<PaymentPreference> {
+    try {
+      console.log('💾 Salvando preferência de pagamento:', request);
+      
+      const response = await apiClient.put<PaymentPreference>(
+        '/customers/me/payment-preference',
+        request
+      );
+      
+      console.log('✅ Preferência salva com sucesso');
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Erro ao salvar preferência:', error);
+      throw error;
+    }
   }
 }
 

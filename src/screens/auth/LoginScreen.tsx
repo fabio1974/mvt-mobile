@@ -20,6 +20,8 @@ import GradientText from "../../components/GradientText";
 interface LoginScreenProps {
   onLoginSuccess: (user: any) => void;
   onBackToWelcome?: () => void;
+  onCreateAccount?: () => void;
+  onForgotPassword?: () => void;
 }
 
 interface LoginData {
@@ -44,6 +46,8 @@ interface LoginResponse {
 export default function LoginScreen({
   onLoginSuccess,
   onBackToWelcome,
+  onCreateAccount,
+  onForgotPassword,
 }: LoginScreenProps) {
   const [formData, setFormData] = useState<LoginData>({
     email: "",
@@ -180,11 +184,9 @@ export default function LoginScreen({
   };
 
   const handleForgotPassword = () => {
-    Alert.alert(
-      "Recuperar senha",
-      "Funcionalidade em desenvolvimento. Entre em contato com o suporte.",
-      [{ text: "OK" }]
-    );
+    if (onForgotPassword) {
+      onForgotPassword();
+    }
   };
 
   return (
@@ -303,12 +305,14 @@ export default function LoginScreen({
 
         {/* Footer */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            Não tem uma conta?{" "}
-            <Text style={styles.footerLink}>
-              Entre em contato com o suporte
-            </Text>
-          </Text>
+          <Text style={styles.footerText}>Não tem uma conta?</Text>
+          <TouchableOpacity
+            style={styles.createAccountButton}
+            onPress={onCreateAccount}
+            disabled={isLoading}
+          >
+            <Text style={styles.createAccountButtonText}>Criar conta</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -475,9 +479,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#64748b",
     textAlign: "center",
+    marginBottom: 12,
   },
-  footerLink: {
-    color: "#e94560",
-    fontWeight: "500",
+  createAccountButton: {
+    backgroundColor: "#1e293b",
+    borderWidth: 1,
+    borderColor: "#ffffff",
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    minWidth: 200,
+    alignItems: "center",
+  },
+  createAccountButtonText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "600",
   },
 });

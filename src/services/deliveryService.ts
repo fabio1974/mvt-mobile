@@ -184,19 +184,20 @@ class DeliveryService {
   }
 
   /**
-   * Marca entrega como coletada (PICKED_UP)
+   * Marca entrega como coletada E em trânsito (IN_TRANSIT)
+   * ⚠️ MUDANÇA: Agora pickup já seta status IN_TRANSIT direto (não há mais PICKED_UP)
    * Backend usa courier do token (sem body necessário)
    */
   async pickupDelivery(deliveryId: string): Promise<DeliveryResponse> {
     try {
-      console.log(`📦 Coletando delivery ${deliveryId}...`);
+      console.log(`📦 Coletando delivery ${deliveryId} e iniciando trânsito...`);
       
       // PATCH sem body - backend usa courier do token
       const response = await apiClient.patch<DeliveryEntity>(
         `/deliveries/${deliveryId}/pickup`
       );
       
-      console.log('✅ Delivery coletado com sucesso, status:', response.data.status);
+      console.log('✅ Delivery coletado e em trânsito, status:', response.data.status);
       
       // Atualiza a entrega no storage local com os dados do backend
       const { deliveryPollingService } = require('./deliveryPollingService');
@@ -205,7 +206,7 @@ class DeliveryService {
       return {
         success: true,
         data: response.data,
-        message: 'Entrega coletada com sucesso!'
+        message: 'Entrega coletada e em trânsito!'
       };
     } catch (error: any) {
       console.error('❌ Erro ao coletar delivery:', error);
@@ -217,36 +218,13 @@ class DeliveryService {
   }
 
   /**
-   * Marca entrega como em trânsito (IN_TRANSIT)
-   * Backend usa courier do token (sem body necessário)
+   * @deprecated O endpoint /transit foi removido. Use pickupDelivery() que agora seta IN_TRANSIT direto.
+   * Este método é mantido apenas para compatibilidade temporária.
    */
   async startTransitDelivery(deliveryId: string): Promise<DeliveryResponse> {
-    try {
-      console.log(`🚚 Iniciando trânsito do delivery ${deliveryId}...`);
-      
-      // PATCH sem body - backend usa courier do token
-      const response = await apiClient.patch<DeliveryEntity>(
-        `/deliveries/${deliveryId}/transit`
-      );
-      
-      console.log('✅ Delivery em trânsito, status:', response.data.status);
-      
-      // Atualiza a entrega no storage local com os dados do backend
-      const { deliveryPollingService } = require('./deliveryPollingService');
-      await deliveryPollingService.updateDeliveryInStorage(deliveryId, response.data);
-      
-      return {
-        success: true,
-        data: response.data,
-        message: 'Entrega em trânsito!'
-      };
-    } catch (error: any) {
-      console.error('❌ Erro ao iniciar trânsito:', error);
-      return {
-        success: false,
-        error: error.response?.data?.message || 'Erro ao iniciar trânsito'
-      };
-    }
+    console.warn('⚠️ startTransitDelivery() está deprecated. Use pickupDelivery() que agora inicia trânsito automaticamente.');
+    // Redireciona para pickupDelivery (mantém compatibilidade)
+    return this.pickupDelivery(deliveryId);
   }
 
   /**
@@ -564,6 +542,58 @@ class DeliveryService {
       return {
         success: false,
         error: error.response?.data?.message || error.message || 'Erro ao criar entrega'
+      };
+    }
+  }
+
+  /**
+   * Busca entregas do cliente logado (CLIENT/CUSTOMER)
+   * O backend identifica o usuário pelo token JWT
+   */
+  async getClientDeliveries(params?: {
+    status?: string;
+    page?: number;
+    size?: number;
+    sort?: string;
+  }): Promise<{
+    success: boolean;
+    data?: DeliveryEntity[];
+    totalElements?: number;
+    totalPages?: number;
+    currentPage?: number;
+    last?: boolean;
+    error?: string;
+  }> {
+    try {
+      const queryParams: any = {
+        page: params?.page ?? 0,
+        size: params?.size ?? 20,
+        sort: params?.sort ?? 'updatedAt,desc',
+      };
+      if (params?.status) queryParams.status = params.status;
+
+      console.log('📋 [DeliveryService] Buscando entregas do cliente...', queryParams);
+
+      const response = await apiClient.get<any>('/deliveries', { params: queryParams });
+
+      const content = Array.isArray(response.data?.content) ? response.data.content
+        : (Array.isArray(response.data) ? response.data : []);
+
+      console.log(`✅ [DeliveryService] ${content.length} entregas encontradas (total: ${response.data?.totalElements ?? content.length})`);
+
+      return {
+        success: true,
+        data: content,
+        totalElements: response.data?.totalElements ?? content.length,
+        totalPages: response.data?.totalPages ?? 1,
+        currentPage: response.data?.number ?? 0,
+        last: response.data?.last ?? true,
+      };
+    } catch (error: any) {
+      console.error('❌ [DeliveryService] Erro ao buscar entregas do cliente:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || 'Erro ao buscar entregas',
       };
     }
   }

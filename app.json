@@ -76,8 +76,14 @@
           "isAndroidForegroundServiceEnabled": true
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#e94560"
+        }
+      ],
       "@react-native-firebase/app",
-      "@react-native-firebase/messaging",
       "@react-native-firebase/crashlytics",
       "expo-font",
       "./plugins/withFirebaseManifest"

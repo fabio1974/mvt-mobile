@@ -55,7 +55,16 @@ const ManageCreditCardsScreen: React.FC<ManageCreditCardsScreenProps> = ({
   const handleSelectCard = async (cardId: number) => {
     try {
       setSaving(true);
+      
+      // 1. Marca cartão como default
       await paymentService.setDefaultCard(cardId);
+      
+      // 2. Salva preferência como CREDIT_CARD automaticamente
+      console.log('💾 [ManageCards] Salvando preferência CREDIT_CARD com cartão:', cardId);
+      await paymentService.savePaymentPreference({
+        preferredPaymentMethod: 'CREDIT_CARD',
+        defaultCardId: cardId,
+      });
       
       setSelectedCardId(cardId);
       
@@ -67,7 +76,11 @@ const ManageCreditCardsScreen: React.FC<ManageCreditCardsScreenProps> = ({
         }))
       );
       
-      Alert.alert('Sucesso', 'Cartão padrão atualizado');
+      Alert.alert(
+        '✅ Sucesso', 
+        'Cartão selecionado como padrão para pagamentos automáticos',
+        [{ text: 'OK', onPress: () => onBack() }]
+      );
     } catch (error) {
       console.error('Erro ao selecionar cartão:', error);
       Alert.alert('Erro', 'Não foi possível atualizar o cartão padrão');

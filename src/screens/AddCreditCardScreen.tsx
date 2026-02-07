@@ -97,6 +97,13 @@ const AddCreditCardScreen: React.FC<AddCreditCardScreenProps> = ({
 
       // PASSO 1: Tokenizar no Pagar.me (dados sensíveis vão direto)
       console.log('🔵 Tokenizando cartão no Pagar.me...');
+      console.log('📝 Dados do cartão:', {
+        numberLast4: cardNumber.slice(-4),
+        holder: cardHolderName.trim(),
+        exp: `${expMonth}/${expYear}`,
+        timestamp: new Date().toISOString(),
+      });
+      
       const token = await tokenizeCard({
         number: cardNumber,
         holderName: cardHolderName.trim(),
@@ -105,7 +112,8 @@ const AddCreditCardScreen: React.FC<AddCreditCardScreenProps> = ({
         cvv,
       });
 
-      console.log('✅ Token recebido, enviando para backend...');
+      console.log('✅ Token recebido:', token);
+      console.log('📤 Enviando para backend...');
 
       // PASSO 2: Enviar token para nosso backend
       const card = await paymentService.addCreditCard({

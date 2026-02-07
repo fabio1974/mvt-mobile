@@ -13,7 +13,13 @@ const PAGARME_API_URL = 'https://api.pagar.me/core/v5';
  */
 export const tokenizeCard = async (cardData: CardFormData): Promise<string> => {
   try {
-    console.log('🔵 Tokenizando cartão no Pagar.me...');
+    const timestamp = new Date().toISOString();
+    console.log('🔵 [PAGAR.ME] Tokenizando cartão...', { timestamp });
+    console.log('📝 [PAGAR.ME] Dados enviados:', {
+      numberLast4: cardData.number.slice(-4),
+      holder: cardData.holderName,
+      exp: `${cardData.expMonth}/${cardData.expYear}`,
+    });
     
     const response = await fetch(
       `${PAGARME_API_URL}/tokens?appId=${PAGARME_PUBLIC_KEY}`,
@@ -37,12 +43,13 @@ export const tokenizeCard = async (cardData: CardFormData): Promise<string> => {
 
     if (!response.ok) {
       const error = await response.json();
-      console.error('❌ Erro Pagar.me:', error);
+      console.error('❌ [PAGAR.ME] Erro:', error);
       throw new Error(error.message || 'Erro ao tokenizar cartão');
     }
 
     const data = await response.json();
-    console.log('✅ Token gerado:', data.id);
+    console.log('✅ [PAGAR.ME] Token gerado:', data.id);
+    console.log('🔍 [PAGAR.ME] Token completo para debug:', JSON.stringify(data, null, 2));
     
     return data.id; // tok_xxxxx
   } catch (error: any) {

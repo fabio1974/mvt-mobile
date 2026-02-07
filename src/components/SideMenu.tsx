@@ -30,9 +30,11 @@ interface SideMenuProps {
   onShowWithdrawalSettings?: () => void;
   onShowChangePassword?: () => void;
   onShowUserData?: () => void;
+  onShowDefaultAddress?: () => void;
+  onShowMyVehicles?: () => void;
 }
 
-export default function SideMenu({ visible, onClose, user, onLogout, onShowBankAccount, onShowWithdrawalSettings, onShowChangePassword, onShowUserData }: SideMenuProps) {
+export default function SideMenu({ visible, onClose, user, onLogout, onShowBankAccount, onShowWithdrawalSettings, onShowChangePassword, onShowUserData, onShowDefaultAddress, onShowMyVehicles }: SideMenuProps) {
   console.log('SideMenu render - visible:', visible, 'user:', user?.name);
   const slideAnim = React.useRef(new Animated.Value(-MENU_WIDTH)).current;
   const panResponder = React.useRef(
@@ -104,6 +106,25 @@ export default function SideMenu({ visible, onClose, user, onLogout, onShowBankA
       onPress: () => {
         if (onShowUserData) {
           onShowUserData();
+        }
+      }
+    },
+    { 
+      icon: 'home-outline', 
+      label: 'Meu Endereço', 
+      onPress: () => {
+        if (onShowDefaultAddress) {
+          onShowDefaultAddress();
+        }
+      }
+    },
+    { 
+      icon: 'car-sport-outline', 
+      label: 'Meus Veículos',
+      requiresRole: ['COURIER'], 
+      onPress: () => {
+        if (onShowMyVehicles) {
+          onShowMyVehicles();
         }
       }
     },
