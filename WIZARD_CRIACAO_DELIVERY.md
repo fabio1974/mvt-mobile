@@ -301,25 +301,25 @@ const isRide = wizardData.deliveryType === 'RIDE';
 ```typescript
 const preference = await paymentService.getPaymentPreference();
 
-if (preference.preferredPaymentMethod === 'PIX') {
-  Alert.alert(
-    '⚠️ RIDE Requer Cartão',
-    'Viagens (RIDE) só podem ser pagas com cartão.',
-    [{ text: 'OK' }]
-  );
-  return;
+// RIDE aceita PIX (no aceite) e Cartão (no trânsito)
+// Valida apenas se escolheu Cartão
+if (preference.preferredPaymentMethod === 'CREDIT_CARD') {
+  if (!preference.defaultCardId) {
+    const hasCards = await paymentService.hasCards();
+    if (!hasCards) {
+      Alert.alert(
+        '⚠️ Cartão Necessário',
+        'Você precisa cadastrar um cartão para criar viagens (RIDE) com pagamento por cartão.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+  }
 }
 
-if (!preference.defaultCardId) {
-  const hasCards = await paymentService.hasCards();
-  if (!hasCards) {
-    Alert.alert(
-      '⚠️ Cartão Necessário',
-      'Você precisa cadastrar um cartão para criar viagens (RIDE).',
-      [{ text: 'OK' }]
-    );
-    return;
-  }
+// PIX é aceito
+if (preference.preferredPaymentMethod === 'PIX') {
+  console.log('🚗💰 RIDE + PIX: QR Code será enviado quando courier aceitar');
 }
 ```
 

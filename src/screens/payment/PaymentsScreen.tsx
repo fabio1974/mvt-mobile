@@ -40,6 +40,18 @@ interface PaymentsScreenProps {
   onBack: () => void;
 }
 
+// Status de pagamento para filtros
+type PaymentStatus = 'ALL' | 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED';
+
+// Configuração dos filtros
+const STATUS_FILTERS = [
+  { key: 'ALL' as PaymentStatus, label: 'Todos', icon: 'list-outline' },
+  { key: 'PENDING' as PaymentStatus, label: 'Pendentes', icon: 'time-outline' },
+  { key: 'PAID' as PaymentStatus, label: 'Pagos', icon: 'checkmark-circle-outline' },
+  { key: 'FAILED' as PaymentStatus, label: 'Falhados', icon: 'close-circle-outline' },
+  { key: 'EXPIRED' as PaymentStatus, label: 'Expirados', icon: 'alert-circle-outline' },
+];
+
 export default function PaymentsScreen({ onBack }: PaymentsScreenProps) {
   const [payments, setPayments] = useState<PaymentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +59,9 @@ export default function PaymentsScreen({ onBack }: PaymentsScreenProps) {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  
+  // Filtro por status
+  const [activeFilter, setActiveFilter] = useState<PaymentStatus>('ALL');
 
   // Modal states
   const [showQRModal, setShowQRModal] = useState(false);
@@ -94,6 +109,16 @@ export default function PaymentsScreen({ onBack }: PaymentsScreenProps) {
     loadPayments(0);
   }, [loadPayments]);
 
+  // Filtra pagamentos localmente por status
+  const filteredPayments = activeFilter === 'ALL' 
+    ? payments 
+    : payments.filter(p => p.status === activeFilter);
+
+  // Quando mudar o filtro, volta para o topo
+  const handleFilterChange = (filter: PaymentStatus) => {
+    setActiveFilter(filter);
+  };
+
   // Pull to refresh
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -138,41 +163,79 @@ export default function PaymentsScreen({ onBack }: PaymentsScreenProps) {
   // Renderiza item da lista
   const renderPaymentItem = ({ item }: { item: PaymentItem }) => {
     const statusColors = paymentService.getStatusColor(item.status);
+    const isPending = item.status === 'PENDING';
+    const isPaid = item.status === 'PAID';
+    
+    // Ícone do status
+    const getStatusIcon = () => {
+      switch (item.status) {
+        case 'PENDING': return 'time-outline';
+        case 'PAID': return 'checkmark-circle-outline';
+        case 'FAILED': return 'close-circle-outline';
+        case 'EXPIRED': return 'alert-circle-outline';
+        default: return 'help-circle-outline';
+      }
+    };
 
     return (
-      <View style={styles.paymentCard}>
-        <View style={styles.paymentHeader}>
-          <View style={styles.paymentIdContainer}>
-            <Text style={styles.paymentId}>Pagamento #{item.id}</Text>
-            <View style={[styles.statusBadge, { backgroundColor: statusColors.bg }]}>
-              <Text style={[styles.statusText, { color: statusColors.text }]}>
-                {paymentService.translateStatus(item.status)}
-              </Text>
-            </View>
+      <View style={[styles.paymentCard, isPaid && styles.cardActive]}>
+        {/* Header */}
+        <View style={styles.cardHeader}>
+          <View style={styles.cardHeaderLeft}>
+            <Text style={styles.cardId}>#{item.id}</Text>
+            <Text style={styles.cardDate}>{paymentService.formatDate(item.createdAt)}</Text>
           </View>
-          <Text style={styles.paymentAmount}>
-            {paymentService.formatCurrency(item.amount)}
-          </Text>
+          <View style={[styles.statusBadge, { backgroundColor: statusColors.bg }]}>
+            <Ionicons name={getStatusIcon() as any} size={14} color={statusColors.text} />
+            <Text style={[styles.statusText, { color: statusColors.text }]}>
+              {paymentService.translateStatus(item.status)}
+            </Text>
+          </View>
         </View>
 
-        <Text style={styles.paymentDate}>
-          {paymentService.formatDate(item.createdAt)}
-        </Text>
+        {/* Valor e Info */}
+        <View style={styles.amountSection}>
+          <View style={styles.amountChip}>
+            <Ionicons name="cash-outline" size={16} color="#10b981" />
+            <Text style={styles.amountValue}>
+              {paymentService.formatCurrency(item.amount)}
+            </Text>
+          </View>
+        </View>
 
-        <View style={styles.actionButtons}>
+        {/* Método de Pagamento */}
+        <View style={styles.infoGrid}>
+          <View style={styles.infoChip}>
+            <Ionicons name={item.paymentMethod === 'PIX' ? 'qr-code-outline' : 'card-outline'} size={13} color="#94a3b8" />
+            <Text style={styles.infoChipText}>{item.paymentMethod}</Text>
+          </View>
+          {item.recipientRole && (
+            <View style={styles.infoChip}>
+              <Ionicons name="person-outline" size={13} color="#94a3b8" />
+              <Text style={styles.infoChipText}>
+                {item.recipientRole === 'COURIER' ? 'Motoboy' : 
+                 item.recipientRole === 'ORGANIZER' ? 'Organizador' : 
+                 item.recipientRole === 'PLATFORM' ? 'Plataforma' : item.recipientRole}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Ações */}
+        <View style={styles.cardActions}>
           <TouchableOpacity
-            style={[styles.actionButton, styles.qrButton]}
+            style={styles.actionButton}
             onPress={() => handleShowQRCode(item)}
           >
-            <Ionicons name="qr-code-outline" size={18} color="#fff" />
+            <Ionicons name="qr-code-outline" size={16} color="#93c5fd" />
             <Text style={styles.actionButtonText}>QR Code</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.actionButton, styles.reportButton]}
+            style={styles.actionButton}
             onPress={() => handleShowReport(item.id)}
           >
-            <Ionicons name="document-text-outline" size={18} color="#fff" />
+            <Ionicons name="document-text-outline" size={16} color="#93c5fd" />
             <Text style={styles.actionButtonText}>Relatório</Text>
           </TouchableOpacity>
         </View>
@@ -214,6 +277,48 @@ export default function PaymentsScreen({ onBack }: PaymentsScreenProps) {
         <View style={{ width: 40 }} />
       </View>
 
+      {/* Tabs de Filtro por Status */}
+      {!loading && (
+        <View style={styles.tabsContainer}>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabsContent}
+          >
+            {STATUS_FILTERS.map(filter => {
+              const count = filter.key === 'ALL' 
+                ? payments.length 
+                : payments.filter(p => p.status === filter.key).length;
+              const isActive = activeFilter === filter.key;
+              
+              return (
+                <TouchableOpacity
+                  key={filter.key}
+                  style={[styles.tab, isActive && styles.tabActive]}
+                  onPress={() => handleFilterChange(filter.key)}
+                >
+                  <Ionicons 
+                    name={filter.icon as any} 
+                    size={18} 
+                    color={isActive ? '#fff' : '#9ca3af'} 
+                  />
+                  <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
+                    {filter.label}
+                  </Text>
+                  {count > 0 && (
+                    <View style={[styles.badge, isActive && styles.badgeActive]}>
+                      <Text style={[styles.badgeText, isActive && styles.badgeTextActive]}>
+                        {count}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
       {/* Content */}
       {loading ? (
         <View style={styles.loadingContainer}>
@@ -222,7 +327,7 @@ export default function PaymentsScreen({ onBack }: PaymentsScreenProps) {
         </View>
       ) : (
         <FlatList
-          data={payments}
+          data={filteredPayments}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderPaymentItem}
           contentContainerStyle={styles.listContent}
@@ -514,49 +619,149 @@ export default function PaymentsScreen({ onBack }: PaymentsScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: "#0f172a",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#7c3aed",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 16,
+    backgroundColor: "#1f2937",
+    borderBottomWidth: 1,
+    borderBottomColor: "#374151",
   },
   backButton: {
-    padding: 8,
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "bold",
     color: "#fff",
   },
   loadingContainer: {
     flex: 1,
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
   },
   loadingText: {
-    marginTop: 12,
     fontSize: 14,
-    color: "#6b7280",
+    color: "#94a3b8",
   },
   listContent: {
     padding: 16,
-    flexGrow: 1,
+    paddingBottom: 40,
+    gap: 14,
   },
+  // ---- Card ----
   paymentCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
+    backgroundColor: "#1e293b",
+    borderRadius: 14,
     padding: 16,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: "#334155",
   },
+  cardActive: {
+    borderColor: "#10b981",
+    borderWidth: 1,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  cardHeaderLeft: {
+    gap: 2,
+  },
+  cardId: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#e2e8f0",
+  },
+  cardDate: {
+    fontSize: 12,
+    color: "#64748b",
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  // ---- Amount Section ----
+  amountSection: {
+    marginBottom: 12,
+  },
+  amountChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#0f172a",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+  },
+  amountValue: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#10b981",
+  },
+  // ---- Info Grid ----
+  infoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 10,
+  },
+  infoChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#0f172a",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  infoChipText: {
+    fontSize: 12,
+    color: "#94a3b8",
+  },
+  // ---- Actions ----
+  cardActions: {
+    flexDirection: "row",
+    gap: 10,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#1e293b",
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    backgroundColor: "rgba(59, 130, 246, 0.15)",
+    borderRadius: 8,
+  },
+  actionButtonText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#93c5fd",
+  },
+  // ---- Unused old styles ----
   paymentHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -573,15 +778,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#1f2937",
   },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
   paymentAmount: {
     fontSize: 18,
     fontWeight: "bold",
@@ -596,37 +792,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
   },
-  actionButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    borderRadius: 8,
-    gap: 6,
-  },
   qrButton: {
     backgroundColor: "#7c3aed",
   },
   reportButton: {
     backgroundColor: "#0ea5e9",
   },
-  actionButtonText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
-  },
   emptyContainer: {
     flex: 1,
-    justifyContent: "center",
     alignItems: "center",
-    paddingTop: 60,
+    justifyContent: "center",
+    gap: 12,
+    paddingHorizontal: 40,
   },
   emptyText: {
     fontSize: 18,
-    fontWeight: "600",
-    color: "#6b7280",
-    marginTop: 16,
+    fontWeight: "bold",
+    color: "#e2e8f0",
   },
   emptySubtext: {
     fontSize: 14,
@@ -906,5 +1088,55 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: "#059669",
+  },
+  tabsContainer: {
+    backgroundColor: "#1f2937",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#374151",
+  },
+  tabsContent: {
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  tab: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: "#374151",
+    gap: 6,
+    marginRight: 8,
+  },
+  tabActive: {
+    backgroundColor: "#7c3aed",
+  },
+  tabLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#9ca3af",
+  },
+  tabLabelActive: {
+    color: "#fff",
+  },
+  badge: {
+    backgroundColor: "#4b5563",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    minWidth: 24,
+    alignItems: "center",
+  },
+  badgeActive: {
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#d1d5db",
+  },
+  badgeTextActive: {
+    color: "#fff",
   },
 });

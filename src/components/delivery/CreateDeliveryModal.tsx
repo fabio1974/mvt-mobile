@@ -111,32 +111,29 @@ export default function CreateDeliveryModal({
       return false;
     }
 
-    // VALIDAÇÃO IMPORTANTE: RIDE requer cartão cadastrado
+    // VALIDAÇÃO: RIDE aceita PIX e Cartão - valida apenas se cartão for escolhido
     if (formData.deliveryType === "RIDE") {
       try {
         const preference = await paymentService.getPaymentPreference();
         
-        // Se preferência é PIX, não pode criar RIDE
-        if (preference.preferredPaymentMethod === "PIX") {
-          Alert.alert(
-            "⚠️ RIDE Requer Cartão",
-            "Viagens (RIDE) só podem ser pagas com cartão. Configure um cartão nas preferências de pagamento.",
-            [{ text: "OK" }]
-          );
-          return false;
-        }
-
-        // Verifica se tem cartão default
-        if (!preference.defaultCardId) {
-          const hasCards = await paymentService.hasCards();
-          if (!hasCards) {
-            Alert.alert(
-              "⚠️ Cartão Necessário",
-              "Você precisa cadastrar um cartão para criar viagens (RIDE). Configure nas preferências de pagamento.",
-              [{ text: "OK" }]
-            );
-            return false;
+        // Se escolheu CARTÃO, valida se tem cartão cadastrado
+        if (preference.preferredPaymentMethod === "CREDIT_CARD") {
+          if (!preference.defaultCardId) {
+            const hasCards = await paymentService.hasCards();
+            if (!hasCards) {
+              Alert.alert(
+                "⚠️ Cartão Necessário",
+                "Você precisa cadastrar um cartão para viagens (RIDE) com pagamento por cartão.",
+                [{ text: "OK" }]
+              );
+              return false;
+            }
           }
+        }
+        
+        // PIX é aceito para RIDE
+        if (preference.preferredPaymentMethod === "PIX") {
+          console.log('🚗💰 RIDE + PIX: QR Code será enviado quando courier aceitar');
         }
       } catch (error) {
         console.error("Erro ao validar preferência:", error);

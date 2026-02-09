@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { paymentService } from '../services/paymentService';
+import { apiClient } from '../services/api';
 import { CreditCard } from '../types/payment';
 
 interface ManageCreditCardsScreenProps {
@@ -76,9 +77,13 @@ const ManageCreditCardsScreen: React.FC<ManageCreditCardsScreenProps> = ({
         }))
       );
       
+      // 3. Tenta processar pagamentos pendentes das entregas em trânsito ou completas
+      console.log('💳 [ManageCards] Chamando retry-unpaid-deliveries...');
+      await processPendingPayments(cardId);
+      
       Alert.alert(
         '✅ Sucesso', 
-        'Cartão selecionado como padrão para pagamentos automáticos',
+        'Cartão selecionado! Processando pagamentos pendentes...',
         [{ text: 'OK', onPress: () => onBack() }]
       );
     } catch (error) {
@@ -86,6 +91,39 @@ const ManageCreditCardsScreen: React.FC<ManageCreditCardsScreenProps> = ({
       Alert.alert('Erro', 'Não foi possível atualizar o cartão padrão');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const processPendingPayments = async (cardId: number) => {
+    try {
+      console.log('💳💳💳 [ManageCards] Iniciando processPendingPayments...');
+      console.log('📞 [ManageCards] Chamando POST /customer-cards/retry-unpaid-deliveries');
+      
+      // Chama endpoint que processa todas as entregas IN_TRANSIT/COMPLETED pendentes de pagamento
+      const response = await apiClient.post('/customer-cards/retry-unpaid-deliveries');
+      
+      const data = response.data;
+      console.log('✅✅✅ [ManageCards] Resposta do backend:', JSON.stringify(data, null, 2));
+      
+      if (data.success > 0) {
+        console.log(`✅ ${data.success} de ${data.total} pagamentos processados com sucesso`);
+        if (data.failed > 0) {
+          console.warn(`⚠️ ${data.failed} pagamentos falharam`);
+        }
+      } else if (data.total === 0) {
+        console.log('ℹ️ Nenhuma entrega pendente de pagamento');
+      } else if (data.skipped > 0) {
+        console.log(`ℹ️ ${data.skipped} entregas já possuem pagamento em processamento`);
+      }
+    } catch (error: any) {
+      console.error('❌❌❌ [ManageCards] Erro ao processar pagamentos pendentes:', error);
+      const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message;
+      console.warn('❌ [ManageCards] Detalhes do erro:', errorMsg);
+      console.warn('❌ [ManageCards] Status HTTP:', error.response?.status);
+      console.warn('❌ [ManageCards] Response completa:', JSON.stringify(error.response?.data, null, 2));
+      
+      // Se for erro de validação (sem cartão, cartão inativo, etc), não mostra nada
+      // pois já estamos na tela de cartões e o usuário acabou de selecionar um
     }
   };
 

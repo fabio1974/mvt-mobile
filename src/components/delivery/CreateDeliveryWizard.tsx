@@ -343,33 +343,102 @@ export default function CreateDeliveryWizard({
   };
 
   const handleSubmit = async () => {
-    // Validação final: RIDE exige cartão
+    const isClient = userRole?.toUpperCase() === 'CLIENT';
+    
+    // CUSTOMER RIDE: aceita PIX (no aceite) ou Cartão (no trânsito)
+    // Apenas valida se tem cartão quando cartão for escolhido
     if (wizardData.deliveryType === 'RIDE') {
       try {
         const preference = await paymentService.getPaymentPreference();
         
-        if (preference.preferredPaymentType === 'PIX') {
-          Alert.alert(
-            '⚠️ RIDE Requer Cartão',
-            'Viagens (RIDE) só podem ser pagas com cartão. Configure um cartão nas preferências de pagamento.',
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-
-        if (!preference.defaultCardId) {
-          const hasCards = await paymentService.hasCards();
-          if (!hasCards) {
-            Alert.alert(
-              '⚠️ Cartão Necessário',
-              'Você precisa cadastrar um cartão para criar viagens (RIDE).',
-              [{ text: 'OK' }]
-            );
-            return;
+        // Se escolheu CARTÃO, valida se tem cartão cadastrado
+        if (preference.preferredPaymentType === 'CREDIT_CARD') {
+          if (!preference.defaultCardId) {
+            const hasCards = await paymentService.hasCards();
+            if (!hasCards) {
+              Alert.alert(
+                '⚠️ Cartão Necessário',
+                'Você precisa cadastrar um cartão para criar viagens (RIDE) com pagamento por cartão.',
+                [{ text: 'OK' }]
+              );
+              return;
+            }
           }
+          console.log('🚗💳 CUSTOMER RIDE + CARTÃO: Pagamento será processado quando courier entrar em trânsito');
+        }
+        
+        // PIX é aceito para RIDE - será cobrado no aceite
+        if (preference.preferredPaymentType === 'PIX') {
+          console.log('🚗💰 CUSTOMER RIDE + PIX: QR Code será enviado quando courier aceitar a viagem');
         }
       } catch (error) {
         console.error('Erro ao validar preferência:', error);
+        Alert.alert('Erro', 'Não foi possível validar sua preferência de pagamento.');
+        return;
+      }
+    }
+
+    // Validação para CLIENT (estabelecimento) criando DELIVERY
+    if (isClient && wizardData.deliveryType === 'DELIVERY') {
+      try {
+        const preference = await paymentService.getPaymentPreference();
+        
+        // CLIENT com CARTÃO: valida se tem cartão cadastrado
+        if (preference.preferredPaymentType === 'CREDIT_CARD') {
+          if (!preference.defaultCardId) {
+            const hasCards = await paymentService.hasCards();
+            if (!hasCards) {
+              Alert.alert(
+                '⚠️ Cartão Necessário',
+                'Configure um cartão de crédito para pagamento automático no aceite da entrega.',
+                [{ text: 'OK' }]
+              );
+              return;
+            }
+          }
+          // Informa que será cobrado no aceite
+          console.log('💳 CLIENT + CARTÃO: Pagamento será processado quando o courier aceitar a entrega');
+        }
+        
+        // CLIENT com PIX: informa sobre pagamento consolidado
+        if (preference.preferredPaymentType === 'PIX') {
+          console.log('💰 CLIENT + PIX: Pagamento será consolidado pelo administrador');
+          // PIX de CLIENT é consolidado - não gera QR Code automático
+        }
+      } catch (error) {
+        console.error('Erro ao validar preferência para CLIENT:', error);
+        Alert.alert('Erro', 'Não foi possível validar sua preferência de pagamento.');
+        return;
+      }
+    }
+
+    // Validação para CUSTOMER criando DELIVERY
+    if (!isClient && wizardData.deliveryType === 'DELIVERY') {
+      try {
+        const preference = await paymentService.getPaymentPreference();
+        
+        // CUSTOMER DELIVERY com CARTÃO: valida cartão e informa que será cobrado no trânsito
+        if (preference.preferredPaymentType === 'CREDIT_CARD') {
+          if (!preference.defaultCardId) {
+            const hasCards = await paymentService.hasCards();
+            if (!hasCards) {
+              Alert.alert(
+                '⚠️ Cartão Necessário',
+                'Configure um cartão para pagamento automático quando o courier iniciar o trânsito.',
+                [{ text: 'OK' }]
+              );
+              return;
+            }
+          }
+          console.log('📦💳 CUSTOMER DELIVERY + CARTÃO: Pagamento será processado quando o courier entrar em trânsito (confirmPickup)');
+        }
+        
+        // CUSTOMER DELIVERY com PIX: informa que receberá QR Code no aceite
+        if (preference.preferredPaymentType === 'PIX') {
+          console.log('📦💰 CUSTOMER DELIVERY + PIX: QR Code será enviado quando o courier aceitar a entrega');
+        }
+      } catch (error) {
+        console.error('Erro ao validar preferência para CUSTOMER:', error);
         Alert.alert('Erro', 'Não foi possível validar sua preferência de pagamento.');
         return;
       }

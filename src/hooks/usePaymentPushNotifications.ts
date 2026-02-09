@@ -83,6 +83,8 @@ export const usePaymentPushNotifications = (callbacks: {
     switch (notificationType) {
       case 'PIX_REQUIRED':
         console.log('💰 PIX_REQUIRED recebido');
+        // NOTA: PIX_REQUIRED só é enviado para CUSTOMER (app mobile)
+        // CLIENT (estabelecimento) usa PIX consolidado criado pelo ADMIN no frontend
         if (onPixRequiredRef.current && data.pixInfo) {
           onPixRequiredRef.current(data.pixInfo);
         } else {
@@ -109,6 +111,15 @@ export const usePaymentPushNotifications = (callbacks: {
 
       case 'PAYMENT_FAILED':
         console.log('❌ PAYMENT_FAILED recebido');
+        
+        // CRÍTICO: Recarrega delivery - pode ter voltado para PENDING (CUSTOMER + PIX)
+        // ou permanecido ACCEPTED (CLIENT + Cartão)
+        // Fire-and-forget (não bloqueia o fluxo)
+        const { deliveryPollingService } = require('../services/deliveryPollingService');
+        deliveryPollingService.refreshDelivery(deliveryId)
+          .then(() => console.log('🔄 Delivery recarregado após PAYMENT_FAILED'))
+          .catch((error: any) => console.error('❌ Erro ao recarregar delivery:', error));
+        
         if (onPaymentFailedRef.current) {
           onPaymentFailedRef.current(
             deliveryId,

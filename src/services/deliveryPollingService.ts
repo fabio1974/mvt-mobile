@@ -1068,6 +1068,34 @@ class DeliveryPollingService {
       return 0;
     }
   }
+
+  /**
+   * Recarrega uma delivery específica do backend e atualiza no cache
+   * Usado após PAYMENT_FAILED para capturar mudanças de status (ex: ACCEPTED → PENDING)
+   */
+  async refreshDelivery(deliveryId: string): Promise<void> {
+    try {
+      console.log(`🔄 Recarregando delivery ${deliveryId} do backend...`);
+      
+      const response = await apiClient.get<any>(`/deliveries/${deliveryId}`);
+      
+      if (response.data) {
+        console.log(`✅ Delivery ${deliveryId} recarregado - Status: ${response.data.status}`);
+        
+        // Atualiza no storage local
+        await this.updateDeliveryInStorage(deliveryId, response.data);
+        
+        // Se voltou para PENDING, invalida cache de ativas
+        if (response.data.status === 'PENDING') {
+          console.log('⚠️ Delivery voltou para PENDING - invalidando cache de ativas');
+          await this.invalidateActiveCache();
+        }
+      }
+    } catch (error: any) {
+      console.error(`❌ Erro ao recarregar delivery ${deliveryId}:`, error);
+      // Não propaga erro - refresh é best-effort
+    }
+  }
 }
 
 export const deliveryPollingService = new DeliveryPollingService();
